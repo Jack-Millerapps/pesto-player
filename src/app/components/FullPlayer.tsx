@@ -160,7 +160,7 @@ export function FullPlayer({ onClose }: FullPlayerProps) {
     <Modal
       label="Now playing"
       onClose={onClose}
-      className="full-player absolute inset-0 z-50 flex flex-col overflow-hidden bg-basil-950"
+      className={`full-player${showQueue ? ' queue-open' : ''} absolute inset-0 z-50 flex flex-col overflow-hidden bg-basil-950`}
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
         {/* Ambient backdrop from the cover art. Desktop only: a full-screen blur on a scaled layer is far too costly for the Pi Zero 2 W (phone/tablet layout hides it). */}

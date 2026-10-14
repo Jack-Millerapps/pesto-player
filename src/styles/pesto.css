@@ -31,7 +31,7 @@ button, input { touch-action: manipulation; }
 .featured-copy h2 { font-family: var(--font-display); margin: 16px 0 12px; font-size: clamp(36px, 4.3vw, 58px); font-weight: 800; line-height: .98; letter-spacing: -.045em; }
 .featured-copy p { font-size: 13px; max-width: 230px; line-height: 1.5; }
 .primary-play { display: inline-flex; align-items: center; gap: 12px; margin-top: 21px; padding: 12px 20px; border-radius: 30px; color: #fff; background: var(--pesto-ink); font-size: 13px; transition: transform .2s, box-shadow .2s; }
-.primary-play:hover { transform: translateY(-2px); box-shadow: 0 5px 0 #183c3126; }
+@media (hover: hover) { .primary-play:hover { transform: translateY(-2px); box-shadow: 0 5px 0 #183c3126; } }
 .record-scene { position: absolute; width: 350px; height: 270px; right: -8px; top: 50%; transform: translateY(-50%); }
 .record-sleeve { position: absolute; z-index: 1; background: #ff9e73; width: 210px; height: 240px; left: 0; top: 15px; padding: 23px; transform: rotate(-10deg); border: 1px solid #183c3126; box-shadow: 5px 13px 20px #44363b22; }
 .record-sleeve > span { font: 800 43px/.88 var(--font-display); letter-spacing: -.06em; }
@@ -57,15 +57,16 @@ button, input { touch-action: manipulation; }
 .mood-info strong { font-size: 14px; color: var(--pesto-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mood-info small { font-size: 11px; }
 .mood-arrow { margin-left: auto; flex-shrink: 0; }
-.mood-tile:hover { transform: translateY(-3px); box-shadow: 0 5px 0 #183c3110; }
+@media (hover: hover) { .mood-tile:hover { transform: translateY(-3px); box-shadow: 0 5px 0 #183c3110; } }
 .small-flower { color: #a84022; margin-left: 9px; font-size: 23px; }
 .album-shelf { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(140px, 1fr); gap: 18px; overflow-x: auto; padding: 3px 0 8px; scrollbar-width: thin; }
 .album-card { min-width: 0; text-align: left; }
 .album-art { position: relative; overflow: hidden; border-radius: 12px; margin-bottom: 10px; background: #d8e5dc; }
 .album-art > img { transition: transform .3s; }
-.album-card:hover .album-art > img { transform: scale(1.05); }
+@media (hover: hover) { .album-card:hover .album-art > img { transform: scale(1.05); } }
 .album-open { position: absolute; bottom: 10px; right: 10px; border-radius: 50%; padding: 9px; background: #f9fcf7; transform: translateY(5px); opacity: 0; transition: opacity .2s, transform .2s; }
-.album-card:hover .album-open, .album-card:focus-visible .album-open { opacity: 1; transform: none; }
+@media (hover: hover) { .album-card:hover .album-open { opacity: 1; transform: none; } }
+.album-card:focus-visible .album-open { opacity: 1; transform: none; }
 .album-card > strong, .album-card > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .album-card > strong { font-size: 13px; font-weight: 600; }
 .album-card > span { font-size: 11px; color: #587365; margin-top: 2px; }

@@ -175,6 +175,14 @@
   .player-volume { grid-column: 2; grid-row: 5; padding-bottom: max(8px, var(--safe-bottom)); }
 }
 
+/* Compact queue: on a 480px-tall screen the queue list needs the room the volume row and big title take. */
+@media (max-width: 1023px) and (max-height: 599px) {
+  .full-player.queue-open .player-volume { display: none; }
+  .full-player.queue-open .player-track-info { padding-top: 2px; padding-bottom: 0; }
+  .full-player.queue-open .player-song-title { font-size: 18px; }
+  .full-player.queue-open .player-transport { padding-bottom: calc(8px + var(--safe-bottom)); }
+}
+
 @media (hover: none) {
   .mood-tile:hover, .primary-play:hover, .album-card:hover .album-art > img { transform: none; box-shadow: none; }
   .album-open { display: none; }
