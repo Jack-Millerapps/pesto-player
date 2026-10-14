@@ -1,0 +1,12 @@
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { transform } from 'esbuild';
+const source = await readFile(new URL('../src/app/lib/queue.ts', import.meta.url), 'utf8');
+const { code } = await transform(source, { loader: 'ts', format: 'esm' });
+const { visibleQueue } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+test('ordered queue keeps the current song and later duplicates', () => assert.deepEqual(visibleQueue(['a','b','a'], 0, new Set([0]), false), ['a','b','a']));
+test('shuffling keeps earlier unplayed songs visible', () => assert.deepEqual(visibleQueue(['a','b','c','d'], 2, new Set([1,2]), true), ['c','a','d']));
+test('played shuffle entries do not return as upcoming', () => assert.deepEqual(visibleQueue(['a','b','c'], 1, new Set([0,1,2]), true), ['b']));
+test('an empty queue stays empty', () => assert.deepEqual(visibleQueue([], 0, new Set(), false), []));
+test('a queue past its end has no current song', () => assert.deepEqual(visibleQueue(['a'], 1, new Set(), true), []));
