@@ -2,7 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { api, PlayerStatus, Track } from '../services/api';
 import { demoTracks, upgradeStarterTrack } from '../lib/demo';
 import { useFeedback } from '../state/Feedback';
-import { visibleQueue } from '../lib/queue';
+import { advanceIndex, visibleQueue } from '../lib/queue';
 import { BrowserAudio } from './BrowserAudio';
 
 export type Connection = 'connecting' | 'online' | 'offline';
@@ -117,6 +117,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const startBrowserTrack = useCallback((track: Track) => {
+    // Switching from a device song to a browser song must silence the device, or both play at once.
+    if (source.current === 'device' && state.current.isPlaying && state.current.connection === 'online') api.pause().catch(() => {});
     setSource('browser'); setCurrentTrack(track); setDuration(track.duration); setPosition(0); setIsPlaying(false); setBuffering(true);
     audio.current?.volume(state.current.volume);
     // Called directly from the user's gesture to satisfy mobile autoplay rules.
@@ -126,18 +128,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const q = browserQueue.current;
     if (!q.tracks.length) return;
     if (automatic && state.current.repeat === 'one') { audio.current?.seek(0); audio.current?.play(); return; }
-    let index = q.index + direction;
-    if (direction === 1 && state.current.shuffle && q.tracks.length > 1) {
-      let available = q.tracks.map((_, i) => i).filter(i => !q.played.has(i));
-      if (!available.length && state.current.repeat === 'all') { q.played = new Set([q.index]); available = q.tracks.map((_, i) => i).filter(i => i !== q.index); }
-      index = available.length ? available[Math.floor(Math.random() * available.length)] : q.tracks.length;
-    }
-    if (index >= q.tracks.length) {
-      if (state.current.repeat !== 'all') { audio.current?.pause(); return; }
-      index = 0;
-    }
-    if (index < 0) index = 0;
-    q.index = index; q.played.add(index);
+    const step = advanceIndex(q.tracks.length, q.index, q.played, direction, state.current.shuffle, state.current.repeat);
+    if (step.type === 'stop') { audio.current?.pause(); return; }
+    const index = step.index;
+    q.played = step.played;
+    q.index = index;
     startBrowserTrack(q.tracks[index]);
     setQueue(visibleQueue(q.tracks, index, q.played, state.current.shuffle));
   }, [startBrowserTrack]);
@@ -162,7 +157,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const togglePlay = useCallback(() => {
     if (!currentTrack) { playTrack(demoTracks[0], demoTracks); return; }
     if (source.current === 'device') {
-      if (state.current.connection === 'online') api.togglePlay().catch(commandFailed);
+      if (state.current.connection === 'online') api.togglePlay().then(result => {
+        // Reflect the device's answer immediately instead of waiting for the next socket push.
+        if (typeof result.isPlaying !== 'boolean' || source.current !== 'device') return;
+        base.current = { ...base.current, position: state.current.position, at: Date.now() };
+        setIsPlaying(result.isPlaying);
+      }).catch(commandFailed);
       else notify('Reconnect your player to resume this song.');
       return;
     }
@@ -185,18 +185,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const setVolume = useCallback((volume: number) => {
     setVolumeState(volume);
     if (source.current === 'browser') audio.current?.volume(volume);
-    else api.setVolume(volume).then(result => setVolumeState(result.volume)).catch(commandFailed);
+    else {
+      command.current = { until: Date.now() + 1500, matches: status => Math.abs(status.volume - volume) < 1 };
+      api.setVolume(volume).then(result => setVolumeState(result.volume)).catch(commandFailed);
+    }
   }, [commandFailed]);
   const toggleShuffle = useCallback(() => {
     const target = !state.current.shuffle;
     state.current.shuffle = target; setShuffle(target);
-    if (source.current === 'device') api.toggleShuffle().catch(commandFailed);
+    if (source.current === 'device') {
+      command.current = { until: Date.now() + 1500, matches: status => status.shuffle === target };
+      api.toggleShuffle().catch(commandFailed);
+    }
     else { const q = browserQueue.current; q.played = new Set([q.index]); setQueue(visibleQueue(q.tracks, q.index, q.played, target)); }
   }, [commandFailed]);
   const toggleRepeat = useCallback(() => {
     const target = state.current.repeat === 'off' ? 'all' : state.current.repeat === 'all' ? 'one' : 'off';
     state.current.repeat = target; setRepeat(target);
-    if (source.current === 'device') api.toggleRepeat().catch(commandFailed);
+    if (source.current === 'device') {
+      command.current = { until: Date.now() + 1500, matches: status => status.repeat === target };
+      api.toggleRepeat().catch(commandFailed);
+    }
   }, [commandFailed]);
   useEffect(() => { try { localStorage.setItem(LIKES_KEY, JSON.stringify([...likes])); } catch { notify('Likes are saved for this session only.'); } }, [likes, notify]);
   const toggleLike = useCallback((id: string) => setLikes(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; }), []);
