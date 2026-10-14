@@ -1,0 +1,1 @@
+{ "name": "pesto-mock-backend", "private": true, "type": "module", "version": "0.0.1", "scripts": { "start": "node server.mjs" }, "dependencies": { "socket.io": "4.8.1" } }

@@ -1,4 +1,8 @@
 import { defineConfig } from 'vite'
+
+// macOS reserves :5000 for AirPlay Receiver; point the dev proxy elsewhere with
+// PESTO_BACKEND=http://localhost:5050 npm run dev (default stays the Flask :5000).
+const backend = process.env.PESTO_BACKEND || 'http://localhost:5000'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -28,12 +32,12 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to Flask backend during development
       '/socket.io': {
-        target: 'http://localhost:5000',
+        target: backend,
         ws: true,
         changeOrigin: true,
       },
       '/api': {
-        target: 'http://localhost:5000',
+        target: backend,
         changeOrigin: true,
       },
     },

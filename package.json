@@ -7,7 +7,9 @@
     "build": "vite build --outDir ../web_build",
     "dev": "vite",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build:local": "vite build --outDir dist",
+    "mock": "node mock-backend/server.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
