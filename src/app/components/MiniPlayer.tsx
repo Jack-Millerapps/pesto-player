@@ -1,5 +1,5 @@
 import { Headphones, Pause, Play, SkipForward } from 'lucide-react';
-import { usePlayer } from '../player/PlayerProvider';
+import { usePlayer, usePosition } from '../player/PlayerProvider';
 import { Cover } from './Cover';
 
 interface MiniPlayerProps {
@@ -7,7 +7,8 @@ interface MiniPlayerProps {
 }
 
 export function MiniPlayer({ onExpand }: MiniPlayerProps) {
-  const { currentTrack, isPlaying, position, duration, togglePlay, next } = usePlayer();
+  const { currentTrack, isPlaying, duration, togglePlay, next } = usePlayer();
+  const position = usePosition();
 
   if (!currentTrack) return <div className="mini-player mini-player-empty"><span className="empty-player-icon"><Headphones size={22} /></span><div><strong>Your next favorite is waiting.</strong><span>Pick a song and make yourself at home.</span></div><span className="empty-player-flower" aria-hidden>✳</span></div>;
 
@@ -54,9 +55,10 @@ export function MiniPlayer({ onExpand }: MiniPlayerProps) {
       </div>
 
       <div className="h-[3px] bg-cream/10">
+        {/* transform (compositor-only), not width: animating width re-ran layout every frame, ~25% of a throttled CPU */}
         <div
-          className="h-full bg-pesto transition-[width] duration-500 ease-linear"
-          style={{ width: `${progress * 100}%` }}
+          className="h-full origin-left bg-pesto transition-transform duration-500 ease-linear"
+          style={{ transform: `scaleX(${progress})` }}
         />
       </div>
     </div>

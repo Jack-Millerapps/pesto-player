@@ -9,13 +9,21 @@ export type Connection = 'connecting' | 'online' | 'offline';
 export type RepeatMode = 'off' | 'all' | 'one';
 interface PlayerContextValue {
   connection: Connection; playbackSource: 'browser' | 'device'; buffering: boolean;
-  isPlaying: boolean; currentTrack: Track | null; position: number; duration: number; volume: number;
+  isPlaying: boolean; currentTrack: Track | null; duration: number; volume: number;
   shuffle: boolean; repeat: RepeatMode; battery: PlayerStatus['battery'] | null; queue: Track[]; likes: Set<string>;
   playTrack: (track: Track, context?: Track[]) => void; togglePlay: () => void; next: () => void; previous: () => void;
   seek: (position: number) => void; setVolume: (volume: number) => void; toggleShuffle: () => void; toggleRepeat: () => void;
   toggleLike: (id: string) => void; addToQueue: (track: Track) => void; clearQueue: () => void; reconnect: () => Promise<void>;
 }
 const PlayerContext = createContext<PlayerContextValue | null>(null);
+// Playback position changes 2-4x per second. Keeping it out of the main context means only the
+// few components that draw it (mini player bar, full player slider) re-render on each tick instead
+// of every song row in a 1,000-song list.
+const PositionContext = createContext(0);
+// Minimal slice for list rows: they only need to know which song is current and whether it plays.
+interface NowPlayingValue { currentId: string | null; isPlaying: boolean; playTrack: PlayerContextValue['playTrack'] }
+const NowPlayingContext = createContext<NowPlayingValue | null>(null);
+const sameBattery = (a: PlayerStatus['battery'] | null, b: PlayerStatus['battery'] | null) => a === b || (!!a && !!b && a.percentage === b.percentage && a.status === b.status && a.color === b.color);
 const LIKES_KEY = 'pesto.likes';
 function loadLikes(): Set<string> {
   try {
@@ -62,12 +70,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [notify]);
 
   const applyStatus = useCallback((status: PlayerStatus) => {
-    setBattery(status.battery ?? null);
+    // Socket status arrives every second with fresh objects; keep references stable so context consumers don't re-render.
+    setBattery(prev => sameBattery(prev, status.battery ?? null) ? prev : status.battery ?? null);
     // Connecting a device must not interrupt a starter song already playing here.
     if (source.current === 'browser' && audio.current?.hasTrack()) return;
     if (command.current && Date.now() < command.current.until && !command.current.matches(status)) return;
     command.current = null;
-    setSource('device'); setIsPlaying(status.isPlaying); setCurrentTrack(status.currentTrack);
+    setSource('device'); setIsPlaying(status.isPlaying); setCurrentTrack(prev => prev?.id === status.currentTrack?.id ? prev : status.currentTrack);
     setPosition(status.position); setDuration(status.duration); setVolumeState(status.volume); setBuffering(false);
     if (typeof status.shuffle === 'boolean') setShuffle(status.shuffle);
     if (status.repeat) setRepeat(status.repeat);
@@ -208,8 +217,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     browserQueue.current = { tracks: current ? [current] : [], index: 0, played: new Set([0]) };
     setQueue(current ? [current] : []); notify('Upcoming songs cleared');
   }, [commandFailed, notify]);
-  const value = useMemo(() => ({ connection, playbackSource, buffering, isPlaying, currentTrack, position, duration, volume, shuffle, repeat, battery, queue, likes, playTrack, togglePlay, next, previous, seek, setVolume, toggleShuffle, toggleRepeat, toggleLike, addToQueue, clearQueue, reconnect }), [connection, playbackSource, buffering, isPlaying, currentTrack, position, duration, volume, shuffle, repeat, battery, queue, likes, playTrack, togglePlay, next, previous, seek, setVolume, toggleShuffle, toggleRepeat, toggleLike, addToQueue, clearQueue, reconnect]);
-  return <PlayerContext.Provider value={value}><audio ref={audioElement} preload="metadata" playsInline hidden aria-hidden="true" />{children}</PlayerContext.Provider>;
+  const value = useMemo(() => ({ connection, playbackSource, buffering, isPlaying, currentTrack, duration, volume, shuffle, repeat, battery, queue, likes, playTrack, togglePlay, next, previous, seek, setVolume, toggleShuffle, toggleRepeat, toggleLike, addToQueue, clearQueue, reconnect }), [connection, playbackSource, buffering, isPlaying, currentTrack, duration, volume, shuffle, repeat, battery, queue, likes, playTrack, togglePlay, next, previous, seek, setVolume, toggleShuffle, toggleRepeat, toggleLike, addToQueue, clearQueue, reconnect]);
+  const currentId = currentTrack?.id ?? null;
+  const nowPlaying = useMemo(() => ({ currentId, isPlaying, playTrack }), [currentId, isPlaying, playTrack]);
+  return <PlayerContext.Provider value={value}><NowPlayingContext.Provider value={nowPlaying}><PositionContext.Provider value={position}><audio ref={audioElement} preload="metadata" playsInline hidden aria-hidden="true" />{children}</PositionContext.Provider></NowPlayingContext.Provider></PlayerContext.Provider>;
+}
+export function usePosition(): number { return useContext(PositionContext); }
+export function useNowPlaying(): NowPlayingValue {
+  const value = useContext(NowPlayingContext);
+  if (!value) throw new Error('PlayerProvider is required');
+  return value;
 }
 export function usePlayer(): PlayerContextValue {
   const value = useContext(PlayerContext);

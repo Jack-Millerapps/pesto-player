@@ -11,7 +11,8 @@ import {
   SkipForward,
   Volume2,
 } from 'lucide-react';
-import { CSSProperties, useEffect, useRef, useState } from 'react';
+import { CSSProperties, memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Track } from '../services/api';
 
 /**
  * Staged slider value that always resolves: commits on release, and for
@@ -64,7 +65,7 @@ function usePendingSlider(commit: (value: number) => void) {
     }),
   };
 }
-import { usePlayer } from '../player/PlayerProvider';
+import { usePlayer, usePosition } from '../player/PlayerProvider';
 import { formatDuration } from '../lib/format';
 import { Cover } from './Cover';
 import { TrackRow } from './TrackRow';
@@ -104,6 +105,13 @@ function ProgressRing({ progress }: { progress: number }) {
   );
 }
 
+/** Memoized so the per-tick position updates of the full player don't re-render every queue row. */
+const QueueList = memo(function QueueList({ upcoming }: { upcoming: Track[] }) {
+  return <>{upcoming.map((track, index) => (
+    <TrackRow key={`${track.id}-${index}`} track={track} context={upcoming} contextFrom={index} showQueueButton={false} />
+  ))}</>;
+});
+
 interface FullPlayerProps {
   onClose: () => void;
 }
@@ -112,7 +120,6 @@ export function FullPlayer({ onClose }: FullPlayerProps) {
   const {
     currentTrack,
     isPlaying,
-    position,
     duration,
     volume,
     shuffle,
@@ -130,11 +137,14 @@ export function FullPlayer({ onClose }: FullPlayerProps) {
     toggleRepeat,
     toggleLike,
   } = usePlayer();
+  const position = usePosition();
 
   const { pending: scrub, handlers: scrubHandlers } = usePendingSlider(seek);
   const { pending: localVolume, handlers: volumeHandlers } = usePendingSlider(setVolume);
   const [showQueue, setShowQueue] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const currentId = currentTrack?.id;
+  const upcoming = useMemo(() => queue[0]?.id === currentId ? queue.slice(1) : queue, [queue, currentId]);
 
   if (!currentTrack) return null;
 
@@ -142,7 +152,6 @@ export function FullPlayer({ onClose }: FullPlayerProps) {
   const shownVolume = localVolume ?? volume;
   const progress = duration > 0 ? shownPosition / duration : 0;
   const liked = likes.has(currentTrack.id);
-  const upcoming = queue[0]?.id === currentTrack.id ? queue.slice(1) : queue;
 
   const rangeFill = (value: number, max: number): CSSProperties =>
     ({ '--range-fill': `${max > 0 ? (value / max) * 100 : 0}%` }) as CSSProperties;
@@ -154,10 +163,10 @@ export function FullPlayer({ onClose }: FullPlayerProps) {
       className="full-player absolute inset-0 z-50 flex flex-col overflow-hidden bg-basil-950"
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-        {/* Ambient backdrop from the cover art */}
+        {/* Ambient backdrop from the cover art. Desktop only: a full-screen blur on a scaled layer is far too costly for the Pi Zero 2 W (phone/tablet layout hides it). */}
         {currentTrack.coverUrl && (
           <div
-            className="pointer-events-none absolute inset-0 scale-125 bg-cover bg-center opacity-25 blur-3xl"
+            className="pointer-events-none absolute inset-0 hidden scale-125 bg-cover bg-center opacity-25 blur-3xl lg:block"
             style={{ backgroundImage: `url(${currentTrack.coverUrl})` }}
             aria-hidden
           />
@@ -197,9 +206,7 @@ export function FullPlayer({ onClose }: FullPlayerProps) {
           <div className="player-queue min-h-0 flex-1 overflow-y-auto px-3 pb-4">
             <div className="queue-heading"><h2 className="font-display text-lg font-bold text-cream">Up next · {upcoming.length}</h2>{upcoming.length > 0 && <button className="text-action" onClick={clearQueue}>Clear queue</button>}</div>
             {upcoming.length > 0 ? (
-              upcoming.map((track, index) => (
-                <TrackRow key={`${track.id}-${index}`} track={track} context={upcoming.slice(index)} showQueueButton={false} />
-              ))
+              <QueueList upcoming={upcoming} />
             ) : (
               <p className="px-2 py-8 text-center text-sm text-sage">
                 The queue is empty. Open any song’s menu to add it to the queue.

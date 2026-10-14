@@ -1,0 +1,32 @@
+import { launch, mock, URL } from './lib.mjs';
+const N = +process.env.N || 1500, slow = +process.env.SLOW || 1;
+const { browser, ctx, page, logs } = await launch();
+await mock('/__mock/config', { tracks: N, latencyMs: 0, failRate: 0, longNames: false, empty: false });
+const cdp = await ctx.newCDPSession(page);
+await cdp.send('Performance.enable');
+if (slow > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: slow });
+await page.addInitScript(() => { window.__lt = []; new PerformanceObserver(l => l.getEntries().forEach(e => window.__lt.push(Math.round(e.duration)))).observe({ entryTypes: ['longtask'] }); });
+let t0 = Date.now();
+await page.goto(URL); await page.getByRole('button', { name: /All \d+ songs/ }).waitFor();
+console.log('home ready ms', Date.now() - t0);
+t0 = Date.now();
+await page.getByRole('button', { name: /All \d+ songs/ }).tap();
+await page.locator('.collection-tracks .track-row').first().waitFor();
+console.log('open all-songs ms', Date.now() - t0, 'rows', await page.locator('.track-row').count());
+const m = async n => { const x = await cdp.send('Performance.getMetrics'); const g = k => x.metrics.find(a => a.name === k).value; console.log(n, 'heapMB', (g('JSHeapUsedSize')/1e6).toFixed(1), 'nodes', g('Nodes'), 'layoutCount', g('LayoutCount'), 'taskSec', g('TaskDuration').toFixed(2), 'scriptSec', g('ScriptDuration').toFixed(2)); return g; };
+await m('before play');
+await page.locator('.collection-tracks .track-row > button').first().tap();
+await page.waitForTimeout(1000);
+await page.evaluate(() => { window.__lt.length = 0; });
+const a = await m('after play'); 
+const s0 = await cdp.send('Performance.getMetrics'); 
+await page.waitForTimeout(5000);
+const s1 = await cdp.send('Performance.getMetrics');
+const d = k => (s1.metrics.find(a=>a.name===k).value - s0.metrics.find(a=>a.name===k).value);
+console.log('5s idle-playing: main-thread busy sec', d('TaskDuration').toFixed(2), 'script', d('ScriptDuration').toFixed(2), 'layout', d('LayoutDuration').toFixed(2), 'recalcStyle', d('RecalcStyleDuration').toFixed(2), 'longtasks', JSON.stringify(await page.evaluate(() => window.__lt)));
+// scroll jank
+t0 = Date.now();
+for (let i = 0; i < 20; i++) { await page.evaluate(() => document.querySelector('.collection-tracks').scrollBy(0, 2000)); await page.waitForTimeout(30); }
+console.log('20 scroll jumps ms', Date.now() - t0);
+console.log(logs.join('\n'));
+await browser.close();

@@ -1,0 +1,17 @@
+import { launch, audit, mock, URL } from './lib.mjs';
+const w = +process.env.W || 320, h = +process.env.H || 480;
+const { browser, page, logs } = await launch({ w, h });
+const rep = async n => { await page.waitForTimeout(400); const a = await audit(page); console.log(n, JSON.stringify(a)); await page.screenshot({ path: `shots/${w}-${n}.png` }); };
+await mock('/__mock/config', { tracks: 24, latencyMs: 0, failRate: 0, longNames: false, empty: false });
+await page.goto(URL); await page.waitForTimeout(1200);
+await page.getByRole('button', { name: /^Play Track 1 by/ }).first().scrollIntoViewIfNeeded();
+await page.getByRole('button', { name: /^Play Track 1 by/ }).first().tap(); await page.waitForTimeout(1500); await rep('t-playing');
+await page.getByRole('button', { name: /Open player/ }).tap(); await rep('t-full');
+await page.getByRole('button', { name: /Show queue/ }).tap(); await rep('t-queue');
+await page.getByRole('button', { name: /Hide queue/ }).tap();
+console.log(await page.evaluate(() => document.querySelector('.full-player').scrollHeight + '/' + document.querySelector('.full-player').clientHeight));
+await page.getByRole('button', { name: /More options|Toggle shuffle/ }).first().tap().catch(()=>{});
+await page.getByRole('button', { name: 'Close player' }).tap();
+await page.getByRole('button', { name: /More options for Track 1$/ }).first().tap(); await rep('t-actions');
+console.log(logs.join('\n'));
+await browser.close();

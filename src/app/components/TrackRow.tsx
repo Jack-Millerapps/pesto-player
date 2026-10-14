@@ -1,8 +1,8 @@
 import { MoreHorizontal } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { TrackActions } from './TrackActions';
 import { Track } from '../services/api';
-import { usePlayer } from '../player/PlayerProvider';
+import { useNowPlaying } from '../player/PlayerProvider';
 import { formatDuration } from '../lib/format';
 import { Cover } from './Cover';
 
@@ -24,13 +24,15 @@ interface TrackRowProps {
   track: Track;
   /** The list this row belongs to, used as the playback queue. */
   context?: Track[];
+  /** Start the playback queue at this index of `context` (lets lists share one stable array). */
+  contextFrom?: number;
   showQueueButton?: boolean;
 }
 
-export function TrackRow({ track, context, showQueueButton = true }: TrackRowProps) {
-  const { currentTrack, isPlaying, playTrack } = usePlayer();
+export const TrackRow = memo(function TrackRow({ track, context, contextFrom = 0, showQueueButton = true }: TrackRowProps) {
+  const { currentId, isPlaying, playTrack } = useNowPlaying();
   const [menuOpen, setMenuOpen] = useState(false);
-  const isCurrent = currentTrack?.id === track.id;
+  const isCurrent = currentId === track.id;
 
   return (
     <div
@@ -39,7 +41,7 @@ export function TrackRow({ track, context, showQueueButton = true }: TrackRowPro
       }`}
     >
       <button
-        onClick={() => playTrack(track, context)}
+        onClick={() => playTrack(track, contextFrom ? context?.slice(contextFrom) : context)}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         aria-label={`Play ${track.title} by ${track.artist}`}
       >
@@ -77,4 +79,4 @@ export function TrackRow({ track, context, showQueueButton = true }: TrackRowPro
       {menuOpen && <TrackActions track={track} onClose={() => setMenuOpen(false)} />}
     </div>
   );
-}
+});
