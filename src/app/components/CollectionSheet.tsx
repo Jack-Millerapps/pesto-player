@@ -5,6 +5,7 @@ import { usePlayer } from '../player/PlayerProvider';
 import { usePersonalLibrary } from '../state/PersonalLibrary';
 import { Cover } from './Cover';
 import { TrackRow } from './TrackRow';
+import { Incremental } from './Incremental';
 import { Modal } from './Modal';
 import { PlaylistEditor } from './PlaylistEditor';
 
@@ -58,7 +59,7 @@ export function CollectionSheet({ collection, onClose, libraryTracks = [] }: Col
       <div className="collection-tracks min-h-0 flex-1 overflow-y-auto px-3 pb-8">
         {failed && <div className="empty-state"><p>These songs couldn’t load. Check your player connection and try again.</p><button className="action-secondary" onClick={() => setAttempt(n => n + 1)}>Try again</button></div>}
         {!failed && tracks === null && <div className="loading-list" role="status">Loading songs…{[0,1,2].map(n => <div key={n} />)}</div>}
-        {tracks?.map((track, index) => <TrackRow key={`${track.id}-${index}`} track={track} context={tracks} />)}
+        {tracks && <Incremental items={tracks} render={(track, index) => <TrackRow key={`${track.id}-${index}`} track={track} context={tracks} />} />}
         {tracks?.length === 0 && !failed && <div className="empty-state"><Heart size={32} /><h3>A little room for your favorites.</h3><p>{personal ? 'Add songs and make this mix yours.' : 'There are no songs in this collection yet.'}</p>{personal && <button className="action-primary" onClick={() => setEditing(true)}>Add songs</button>}</div>}
       </div>
     </div>
