@@ -9,4 +9,4 @@ await page.locator('.collection-tracks .track-row > button').first().tap(); awai
 const run = async (label) => { const a = await cdp.send('Performance.getMetrics'); await page.waitForTimeout(4000); const b = await cdp.send('Performance.getMetrics'); const d = k => (b.metrics.find(x=>x.name===k).value - a.metrics.find(x=>x.name===k).value).toFixed(2); console.log(label, 'busy', d('TaskDuration'), 'script', d('ScriptDuration'), 'layout', d('LayoutDuration'), 'style', d('RecalcStyleDuration'), 'layouts', d('LayoutCount')); };
 await run('baseline playing');
 if (process.env.CSS) { await page.addStyleTag({ content: process.env.CSS }); await run('with css: ' + process.env.CSS); }
-await browser.close();
+await browser.close(); process.exit(0);

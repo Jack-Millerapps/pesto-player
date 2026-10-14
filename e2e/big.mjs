@@ -29,4 +29,4 @@ t0 = Date.now();
 for (let i = 0; i < 20; i++) { await page.evaluate(() => document.querySelector('.collection-tracks').scrollBy(0, 2000)); await page.waitForTimeout(30); }
 console.log('20 scroll jumps ms', Date.now() - t0);
 console.log(logs.join('\n'));
-await browser.close();
+await browser.close(); process.exit(0);

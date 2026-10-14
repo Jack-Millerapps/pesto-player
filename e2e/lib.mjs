@@ -2,7 +2,7 @@ import { chromium } from 'playwright-core';
 export const URL = process.env.URL || 'http://127.0.0.1:5173';
 export const MOCK = 'http://127.0.0.1:5050';
 export async function launch({ w = 320, h = 480, offline = false } = {}) {
-  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required'] });
+  const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--disable-audio-output'] });
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: w < 768, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
   const logs = [];

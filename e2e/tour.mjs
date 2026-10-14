@@ -13,4 +13,4 @@ await page.getByRole('button', { name: 'Home', exact: true }).last().tap();
 await page.getByRole('button', { name: /Play the mix/ }).tap(); await page.waitForTimeout(1500); await rep('home-playing');
 await page.locator('.mini-player button').first().tap(); await rep('fullplayer');
 console.log(logs.join('\n'));
-await browser.close();
+await browser.close(); process.exit(0);

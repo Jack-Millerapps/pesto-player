@@ -14,4 +14,4 @@ await page.getByRole('button', { name: /More options|Toggle shuffle/ }).first().
 await page.getByRole('button', { name: 'Close player' }).tap();
 await page.getByRole('button', { name: /More options for Track 1$/ }).first().tap(); await rep('t-actions');
 console.log(logs.join('\n'));
-await browser.close();
+await browser.close(); process.exit(0);

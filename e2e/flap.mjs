@@ -16,4 +16,4 @@ console.log('home states during 12s flap (2.5s drop interval):', seq.join(' > ')
 console.log('api requests during flap:', JSON.stringify(Object.fromEntries(Object.keys(s1).map(k => [k, s1[k] - (s0[k]||0)]).filter(([k,v]) => v))));
 console.log('end', await label(), await kind());
 console.log(logs.join('\n'));
-await browser.close();
+await browser.close(); process.exit(0);
