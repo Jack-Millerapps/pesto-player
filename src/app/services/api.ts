@@ -63,6 +63,8 @@ export interface SearchResults {
 }
 
 // Configuration
+// Whole-library listings can be large and the player is a Pi Zero 2 W; give them more than the 5 s used for control calls.
+const LIBRARY_TIMEOUT_MS = 20000;
 const API_BASE_URL = import.meta.env.VITE_API_URL || window.location.origin;
 
 class PestoAPI {
@@ -90,9 +92,12 @@ class PestoAPI {
       this.setConnected(true);
     });
 
-    this.socket.on('disconnect', () => {
+    this.socket.on('disconnect', (reason) => {
       console.log('[API] WebSocket disconnected');
       this.setConnected(false);
+      // socket.io never auto-reconnects after a server-initiated disconnect
+      // ('io server disconnect'); without this the UI would stay on "This device" forever.
+      if (reason === 'io server disconnect') this.socket?.connect();
     });
 
     this.socket.on('status', (status: PlayerStatus) => {
@@ -131,9 +136,9 @@ class PestoAPI {
   }
 
   // Helper for API calls
-  private async fetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  private async fetch<T>(endpoint: string, options?: RequestInit, timeoutMs = 5000): Promise<T> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -229,15 +234,15 @@ class PestoAPI {
     if (limit) params.append('limit', limit.toString());
     if (offset) params.append('offset', offset.toString());
 
-    return this.fetch(`/api/library/tracks?${params}`);
+    return this.fetch(`/api/library/tracks?${params}`, undefined, LIBRARY_TIMEOUT_MS);
   }
 
   async getAlbums(): Promise<{ albums: Album[] }> {
-    return this.fetch('/api/library/albums');
+    return this.fetch('/api/library/albums', undefined, LIBRARY_TIMEOUT_MS);
   }
 
   async getArtists(): Promise<{ artists: Artist[] }> {
-    return this.fetch('/api/library/artists');
+    return this.fetch('/api/library/artists', undefined, LIBRARY_TIMEOUT_MS);
   }
 
   async getAlbum(albumId: string): Promise<{ album: Album }> {
@@ -269,7 +274,7 @@ class PestoAPI {
 
   // Playlist APIs
   async getPlaylists(): Promise<{ playlists: Playlist[] }> {
-    return this.fetch('/api/playlists');
+    return this.fetch('/api/playlists', undefined, LIBRARY_TIMEOUT_MS);
   }
 
   async getPlaylist(playlistId: string): Promise<Playlist> {

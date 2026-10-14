@@ -9,12 +9,14 @@
 //   POST /__mock/config {"tracks":1500,"latencyMs":800,"failRate":0.3,"longNames":true,"empty":true}
 //   POST /__mock/down      all REST -> 503 and sockets are dropped/refused
 //   POST /__mock/up        recover
-//   POST /__mock/kick      drop current sockets once (client auto-reconnects)
+//   POST /__mock/kick      drop transports once (client sees 'transport close', auto-reconnects)
+//   POST /__mock/server-disconnect   server-initiated disconnect ('io server disconnect')
 //   POST /__mock/flap {"ms":2000}  drop sockets every ms until /__mock/flap {"ms":0}
 //   GET  /__mock/stats     request counters + connected socket count
 import http from 'node:http';
 import { Server } from 'socket.io';
 
+const dropTransport = () => { for (const [, sk] of io.sockets.sockets) sk.conn.close(); }; // client sees 'transport close' -> auto-reconnects (like a crashed/restarted server)
 const PORT = Number(process.env.PORT || 5050);
 const cfg = { tracks: 24, latencyMs: 0, failRate: 0, longNames: false, empty: false, down: false };
 const stats = { requests: 0, byPath: {}, failed: 0 };
@@ -66,10 +68,11 @@ const server = http.createServer(async (req, res) => {
 
   if (path.startsWith('/__mock/')) {
     if (path === '/__mock/config') { Object.assign(cfg, body); build(); return send(200, cfg); }
-    if (path === '/__mock/down') { cfg.down = true; io.disconnectSockets(true); return send(200, { down: true }); }
+    if (path === '/__mock/down') { cfg.down = true; dropTransport(); return send(200, { down: true }); }
     if (path === '/__mock/up') { cfg.down = false; return send(200, { down: false }); }
-    if (path === '/__mock/kick') { io.disconnectSockets(true); return send(200, {}); }
-    if (path === '/__mock/flap') { clearInterval(flap); if (body.ms) flap = setInterval(() => io.disconnectSockets(true), body.ms); return send(200, { ms: body.ms || 0 }); }
+    if (path === '/__mock/kick') { dropTransport(); return send(200, {}); }
+    if (path === '/__mock/server-disconnect') { io.disconnectSockets(true); return send(200, {}); } // client sees 'io server disconnect' (socket.io does NOT auto-reconnect here)
+    if (path === '/__mock/flap') { clearInterval(flap); if (body.ms) flap = setInterval(dropTransport, body.ms); return send(200, { ms: body.ms || 0 }); }
     if (path === '/__mock/stats') return send(200, { ...stats, sockets: io.engine.clientsCount, cfg });
     return send(404, {});
   }
