@@ -201,6 +201,7 @@ class PestoPlayer:
             self._step(dt)
         except Exception as e:
             traceback.print_exc()
+            self._recover_display()
             now = time.time()
             if now - self._last_error_toast > 5.0:
                 self._last_error_toast = now
@@ -208,6 +209,19 @@ class PestoPlayer:
                     self.screen_manager.toast("Something went wrong", "error")
                 except Exception:
                     pass
+
+    def _recover_display(self):
+        """After a failed frame the surface may be half-drawn with a leftover clip:
+        reset the clip and make the next frame repaint everything."""
+        try:
+            self.screen.set_clip(None)
+            sm = self.screen_manager
+            sm._full = True              # ScreenManager has no public "invalidate" yet
+            cur = sm.current_screen()
+            if cur is not None:
+                cur.dirty = True
+        except Exception:
+            traceback.print_exc()
 
     def _drain_button_events(self):
         handlers = {"volume_up": lambda: self._volume_step(+1),

@@ -110,3 +110,29 @@ def test_battery_none_passes_through_to_status_bar(app):
     app.battery.get_level = lambda: None
     app._update_battery(force=True)
     assert seen == [None]
+
+
+def test_draw_error_resets_clip_and_next_frame_repaints_everything(app):
+    sm = app.screen_manager
+    app.step(1 / 30)
+    cur = sm.current_screen()
+    real_draw = cur.draw
+
+    def bad_draw(surface):
+        surface.set_clip(pygame.Rect(0, 0, 10, 10))   # leave a stray clip, then fail
+        raise RuntimeError("draw failed")
+
+    cur.draw = bad_draw
+    cur.dirty = True
+    app.step(1 / 30)                                   # swallowed
+    assert app.screen.get_clip() == app.screen.get_rect()
+    cur.draw = real_draw
+    updates = []
+    real_update = pygame.display.update
+    pygame.display.update = lambda r=None: updates.append(r)
+    try:
+        app.step(1 / 30)
+    finally:
+        pygame.display.update = real_update
+    rects = [r for batch in updates if batch for r in batch]
+    assert any(r.contains(app.screen.get_rect()) for r in rects)
