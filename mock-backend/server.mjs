@@ -144,8 +144,7 @@ function advance(dir) {
   player.index = i; player.position = 0;
 }
 
-const io = new Server(server, { cors: { origin: '*' } });
-io.use((_s, next) => cfg.down ? next(new Error('down')) : next());
+const io = new Server(server, { cors: { origin: '*' }, allowRequest: (_req, cb) => cb(null, !cfg.down) }); // engine-level refusal: client auto-retries (a middleware error would NOT be retried by socket.io)
 const push = () => io.emit('status', status());
 io.on('connection', socket => socket.emit('status', status()));
 let flap = null;

@@ -70,7 +70,7 @@ button, input { touch-action: manipulation; }
 .album-card > strong, .album-card > span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .album-card > strong { font-size: 13px; font-weight: 600; }
 .album-card > span { font-size: 11px; color: #587365; margin-top: 2px; }
-.home-tracks { display: grid; grid-template-columns: 1fr; gap: 2px 20px; }
+.home-tracks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 20px; }
 .demo-note { display: flex; align-items: center; gap: 12px; padding: 18px 0; margin-top: 24px; border-top: 1px solid #183c3115; }
 .demo-note p { font-size: 11px; color: #587365; }
 .demo-pill { flex-shrink: 0; border: 1px solid #b3cbbd; border-radius: 5px; padding: 4px 6px; font-size: 8px; letter-spacing: .06em; font-weight: 600; }
