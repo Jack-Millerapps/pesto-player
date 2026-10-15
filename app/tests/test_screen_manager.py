@@ -1,0 +1,230 @@
+import os
+import sys
+
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import pygame
+import pytest
+
+from ui import theme
+from ui.screen_manager import Screen, ScreenManager
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _pg():
+    pygame.init()
+    pygame.display.set_mode((320, 480))
+    yield
+
+
+class Rec(Screen):
+    def __init__(self, sm, has_mini=True):
+        super().__init__(sm)
+        self.has_mini_player = has_mini
+        self.log = []
+        self.touches = []
+        self.draws = 0
+
+    def on_enter(self, **kw):
+        self.log.append(("enter", kw))
+
+    def on_leave(self):
+        self.log.append(("leave",))
+
+    def handle_touch(self, pos, kind):
+        self.touches.append((pos, kind))
+        return True
+
+    def draw(self, surface):
+        self.draws += 1
+
+
+def make():
+    surf = pygame.Surface((320, 480))
+    sm = ScreenManager(surf)
+    scr = {n: Rec(sm, n != "now_playing") for n in
+           ("now_playing", "library", "queue", "settings", "songs", "artists", "albums")}
+    sm.register("now_playing", scr["now_playing"], tab="now_playing")
+    sm.register("library", scr["library"], tab="library")
+    sm.register("queue", scr["queue"], tab="queue")
+    sm.register("settings", scr["settings"], tab="settings")
+    for n in ("songs", "artists", "albums"):
+        sm.register(n, scr[n], tab="library")
+    return sm, scr, surf
+
+
+def tab_center(i):
+    return (i * 80 + 40, theme.TAB_Y + 28)
+
+
+def test_show_enter_leave():
+    sm, scr, _ = make()
+    sm.show("now_playing")
+    sm.show("library")
+    assert scr["now_playing"].log[-1] == ("leave",)
+    assert scr["library"].log[-1][0] == "enter"
+    assert sm.current_name() == "library"
+
+
+def test_unknown_screen_raises_or_ignored():
+    sm, scr, _ = make()
+    sm.show("now_playing")
+    sm.show("nope")
+    assert sm.current_name() == "now_playing"
+
+
+def test_push_pop_and_kwargs():
+    sm, scr, _ = make()
+    sm.show("library")
+    sm.push("songs", mode="x")
+    assert sm.current_name() == "songs"
+    assert scr["songs"].log[-1] == ("enter", {"mode": "x"})
+    assert sm.pop() is True
+    assert sm.current_name() == "library"
+    assert sm.pop() is False
+
+
+def test_stack_bounded_no_duplicates():
+    sm, scr, _ = make()
+    sm.show("library")
+    for _ in range(50):
+        sm.push("songs")
+        sm.push("artists")
+        sm.push("albums")
+    assert len(sm._stack) <= 4
+
+
+def test_push_outside_library_tab_is_refused():
+    sm, scr, _ = make()
+    sm.show("settings")
+    sm.push("songs")
+    assert sm.current_name() == "settings"
+
+
+def test_tab_tap_switches_and_resets_stack():
+    sm, scr, _ = make()
+    sm.show("library")
+    sm.push("songs")
+    c = tab_center(2)
+    sm.handle_touch(c, "down")
+    sm.handle_touch(c, "up")
+    assert sm.current_name() == "queue"
+    assert sm._stack == []
+    c = tab_center(1)
+    sm.handle_touch(c, "down")
+    sm.handle_touch(c, "up")
+    assert sm.current_name() == "library"
+    sm.push("songs")
+    sm.handle_touch(c, "down")
+    sm.handle_touch(c, "up")  # re-tap active tab -> root
+    assert sm.current_name() == "library"
+
+
+def test_touch_routed_to_screen_and_gesture_captured():
+    sm, scr, _ = make()
+    sm.show("library")
+    sm.handle_touch((100, 100), "down")
+    sm.handle_touch((100, 500), "move")  # beyond content: still goes to same target
+    sm.handle_touch((100, 500), "up")
+    assert [k for _, k in scr["library"].touches] == ["down", "move", "up"]
+
+
+def test_status_bar_touch_ignored():
+    sm, scr, _ = make()
+    sm.show("library")
+    sm.handle_touch((100, 5), "down")
+    assert scr["library"].touches == []
+
+
+def test_mini_player_region_routes_to_mini():
+    sm, scr, _ = make()
+
+    class Mini:
+        dirty = True
+        def __init__(self): self.t = []
+        def handle_touch(self, pos, kind): self.t.append(kind); return True
+        def update(self, dt): pass
+        def draw(self, surface): pass
+
+    sm.mini_player = Mini()
+    sm.show("library")
+    sm.handle_touch((100, theme.MINI_Y + 10), "down")
+    sm.handle_touch((100, theme.MINI_Y + 10), "up")
+    assert sm.mini_player.t == ["down", "up"]
+    assert scr["library"].touches == []
+    sm.show("now_playing")  # no mini on now playing -> screen gets it
+    sm.handle_touch((100, theme.MINI_Y + 10), "down")
+    assert scr["now_playing"].touches
+
+
+def test_toast_expires_and_dirty():
+    sm, scr, surf = make()
+    sm.show("library")
+    sm.draw()
+    sm.toast("Oops", "error")
+    assert sm.toast_text == "Oops"
+    rects = sm.draw()
+    assert rects
+    sm.update(10.0)
+    assert sm.toast_text is None
+    assert sm.draw()  # redraw to erase it
+
+
+def test_sheet_modal_actions_and_dismiss():
+    sm, scr, surf = make()
+    sm.show("library")
+    hits = []
+    sm.show_sheet([("Play next", lambda: hits.append("a")), ("Add to queue", lambda: hits.append("b"))])
+    assert sm.sheet_open
+    sm.draw()
+    sm.handle_touch((100, 100), "down")  # outside sheet: absorbed
+    sm.handle_touch((100, 100), "up")
+    assert not sm.sheet_open and scr["library"].touches == []
+    sm.show_sheet([("Play next", lambda: hits.append("a")), ("Add to queue", lambda: hits.append("b"))])
+    r = sm.sheet_row_rects()[1]
+    assert r.height >= 44
+    sm.handle_touch(r.center, "down")
+    sm.handle_touch(r.center, "up")
+    assert hits == ["b"] and not sm.sheet_open
+
+
+def test_dirty_flag_redraw_and_idle_fps():
+    sm, scr, surf = make()
+    sm.show("library")
+    assert sm.draw()               # first frame draws
+    d = scr["library"].draws
+    assert sm.draw() == []         # nothing dirty -> nothing drawn
+    assert scr["library"].draws == d
+    scr["library"].dirty = True
+    assert sm.draw()
+    assert scr["library"].draws == d + 1
+    assert scr["library"].dirty is False
+    sm.update(5.0)
+    assert sm.target_fps() == theme.FPS_IDLE
+    sm.handle_touch((100, 100), "down")
+    assert sm.target_fps() == theme.FPS_ACTIVE
+
+
+def test_screens_have_no_private_full_surface():
+    sm, scr, _ = make()
+    assert not hasattr(Screen(sm), "surface")
+
+
+def test_overlay_drawn_and_dirty():
+    sm, scr, surf = make()
+    sm.show("library")
+    sm.draw()
+
+    class HUD:
+        active = True
+        dirty = True
+        drawn = 0
+        def update(self, dt): pass
+        def draw(self, s): HUD.drawn += 1
+
+    h = HUD()
+    sm.add_overlay(h)
+    assert sm.draw()
+    assert HUD.drawn == 1
