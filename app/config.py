@@ -60,7 +60,7 @@ VOLUME_MAX = 100          # Maximum volume
 MUSIC_DIRECTORY = "~/Music"  # Default music directory
 
 # Supported audio formats
-SUPPORTED_FORMATS = ['.mp3', '.flac', '.m4a', '.ogg', '.wav']
+SUPPORTED_FORMATS = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.opus']  # matched case-insensitively
 
 # ============================================================================
 # BATTERY CONFIGURATION
@@ -69,13 +69,6 @@ BATTERY_I2C_ADDRESS = 0x36        # MAX17048 I2C address
 BATTERY_UPDATE_INTERVAL = 10.0    # Update interval in seconds
 BATTERY_LOW_WARNING = 15          # Low battery warning percentage
 BATTERY_CRITICAL = 5              # Critical battery (shutdown) percentage
-
-# ============================================================================
-# MOPIDY CONFIGURATION
-# ============================================================================
-MOPIDY_HOST = "localhost"
-MOPIDY_PORT = 6680
-MOPIDY_BASE_URL = f"http://{MOPIDY_HOST}:{MOPIDY_PORT}/mopidy/rpc"
 
 # ============================================================================
 # UI LAYOUT CONSTANTS
@@ -122,7 +115,30 @@ ALBUM_ART_CACHE_SIZE = 20         # Number of album arts to cache
 # ============================================================================
 # TESTING/DEVELOPMENT MODE
 # ============================================================================
-TEST_MODE = True  # Set to False when running on actual hardware
+def _detect_test_mode():
+    """PESTO_TEST=1/0 forces the mode; otherwise TEST_MODE is on unless we look
+    like the real device (a Linux framebuffer and GPIO are both present)."""
+    import os
+    forced = os.environ.get("PESTO_TEST")
+    if forced is not None:
+        return forced.strip().lower() not in ("0", "false", "no", "")
+    on_device = os.path.exists("/dev/fb0") and os.path.exists("/dev/gpiomem")
+    return not on_device
+
+
+TEST_MODE = _detect_test_mode()  # auto-detected; override with env PESTO_TEST=0/1
+
+# Persisted user state, playlists and the uploader's "new files" flag
+import os as _os
+STATE_DIR = _os.path.expanduser(_os.environ.get("PESTO_STATE_DIR", "~/.pesto"))
+STATE_FILE = _os.path.join(STATE_DIR, "state.json")
+INDEX_FILE = _os.path.join(STATE_DIR, "library_index.json")
+PLAYLIST_DIR = _os.path.join(STATE_DIR, "playlists")
+DIRTY_FLAG = _os.path.join(STATE_DIR, "library.dirty")
+UPLOADER_PORT = 8080
+UPLOADER_INFO_FILE = _os.path.join(STATE_DIR, "uploader.json")  # {"token":..,"port":..}
+BACKLIGHT_PATH = "/sys/class/backlight"  # optional; brightness skipped if absent
+APP_VERSION = "2.0.0"
 
 # Keyboard mappings for testing (when TEST_MODE = True)
 KEY_VOLUME_UP = 'up'              # Arrow up
