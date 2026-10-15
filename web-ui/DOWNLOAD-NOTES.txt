@@ -1,0 +1,7 @@
+Pesto Player UI source
+
+Run npm install, then npm run dev.
+
+Includes React UI, styles, cover artwork, configuration, and tests.
+Audio recordings, dependencies, environment files, and the Python/device backend are excluded.
+Bundled song URLs require the corresponding audio files if you want playback.

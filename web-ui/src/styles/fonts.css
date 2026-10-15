@@ -1,0 +1,7 @@
+/* Self-hosted (npm @fontsource) instead of the Google Fonts @import: that import is render-blocking and
+   the Pi serves a LAN-only page, so with no internet the first paint waited on a dead request. */
+@import '@fontsource-variable/bricolage-grotesque/wght.css';
+@import '@fontsource/outfit/400.css';
+@import '@fontsource/outfit/500.css';
+@import '@fontsource/outfit/600.css';
+@import '@fontsource/outfit/700.css';

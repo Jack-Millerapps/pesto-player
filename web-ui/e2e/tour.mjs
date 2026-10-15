@@ -1,0 +1,16 @@
+import { launch, audit, mock, URL } from './lib.mjs';
+const w = +process.env.W || 320, h = +process.env.H || 480;
+const { browser, page, logs } = await launch({ w, h });
+const shot = n => page.screenshot({ path: `shots/${w}-${n}.png` });
+const rep = async n => { await page.waitForTimeout(350); const a = await audit(page); console.log(n, JSON.stringify(a)); await shot(n); };
+await mock('/__mock/config', { tracks: 24, latencyMs: 0, failRate: 0, longNames: false, empty: false });
+await page.goto(URL); await page.waitForTimeout(1200);
+await rep('home');
+await page.evaluate(() => document.querySelector('.page-scroll').scrollTo(0, 600)); await rep('home-scrolled');
+await page.getByRole('button', { name: 'Search', exact: true }).last().tap(); await rep('search');
+await page.getByRole('button', { name: 'Library', exact: true }).last().tap(); await rep('library');
+await page.getByRole('button', { name: 'Home', exact: true }).last().tap();
+await page.getByRole('button', { name: /Play the mix/ }).tap(); await page.waitForTimeout(1500); await rep('home-playing');
+await page.locator('.mini-player button').first().tap(); await rep('fullplayer');
+console.log(logs.join('\n'));
+await browser.close(); process.exit(0);

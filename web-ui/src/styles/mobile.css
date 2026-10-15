@@ -1,0 +1,190 @@
+/* Phone and tablet layouts: leave room for the music and for thumbs. */
+@media (max-width: 1023px) {
+  .pesto-app {
+    --mobile-gutter: 20px;
+    --nav-height: 64px;
+    --player-height: 72px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --dock-height: calc(var(--nav-height) + var(--safe-bottom));
+  }
+
+  .pesto-app.has-track {
+    --dock-height: calc(var(--nav-height) + var(--player-height) + var(--safe-bottom));
+  }
+
+  .page-scroll {
+    padding-bottom: calc(var(--dock-height) + 20px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    scroll-padding-bottom: calc(var(--dock-height) + 20px);
+    overscroll-behavior-y: contain;
+  }
+
+  .app-header {
+    min-height: 60px;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) var(--mobile-gutter) 12px;
+  }
+
+  .home-content { padding: 0 var(--mobile-gutter); }
+  .page-heading { margin: 8px 0 18px; }
+  .page-heading .eyebrow { margin-bottom: 6px; }
+  .page-heading h1 { font-size: clamp(26px, 7.2vw, 34px); line-height: 1.08; }
+  .heading-star { font-size: 32px; }
+
+  .featured-mix { min-height: 0; border-radius: 18px; }
+  .featured-copy { padding: 20px; max-width: 100%; width: 100%; }
+  .feature-label { font-size: 9px; gap: 6px; }
+  .featured-copy h2 { font-size: 30px; margin: 12px 0 9px; max-width: 66%; }
+  .featured-copy p { font-size: 12px; max-width: 65%; line-height: 1.4; }
+  .featured-copy .primary-play { min-height: 44px; padding: 10px 16px; margin-top: 15px; }
+
+  /* A smaller, complete record takes the place of the clipped desktop sleeve. */
+  .record-scene {
+    width: 112px;
+    height: 112px;
+    top: 52%;
+    right: 8px;
+    transform: translateY(-50%) rotate(12deg);
+  }
+  .record-sleeve, .record-sticker { display: none; }
+  .vinyl-record { width: 112px; height: 112px; top: 0; border-width: 3px; }
+  .record-label { width: 53px; height: 53px; border-width: 4px; }
+  .record-label span { font-size: 11px; }
+  .record-label i { width: 4px; height: 4px; margin-top: 4px; }
+
+  .mix-section, .album-section, .songs-section { margin-top: 23px; }
+  .section-heading { margin-bottom: 12px; }
+  .section-heading h2 { font-size: 20px; }
+  .section-heading > span { display: none; }
+  .mood-grid { gap: 10px; }
+  .mood-tile { min-height: 66px; padding: 12px; gap: 9px; }
+  .mood-symbol { font-size: 30px; }
+  .mood-info strong { font-size: 13px; white-space: normal; line-height: 1.2; overflow-wrap: anywhere; }
+  .mood-info small { font-size: 12px; margin-top: 3px; }
+  .mood-arrow { display: none; }
+
+  .album-shelf {
+    grid-auto-columns: clamp(130px, 41vw, 180px);
+    gap: 14px;
+    margin-right: calc(-1 * var(--mobile-gutter));
+    padding-right: var(--mobile-gutter);
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 0 var(--mobile-gutter);
+    overscroll-behavior-x: contain;
+  }
+  .album-card { scroll-snap-align: start; }
+  .album-card > strong { font-size: 14px; }
+  .album-card > span { font-size: 12px; }
+  .demo-note { align-items: flex-start; }
+  .demo-note p { font-size: 12px; line-height: 1.5; }
+
+  .mini-player-empty { display: none; }
+  .mini-player {
+    bottom: calc(var(--nav-height) + var(--safe-bottom));
+    left: max(8px, env(safe-area-inset-left, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+    border-radius: 14px;
+    backdrop-filter: none;
+  }
+  .mini-player-controls { gap: 8px; padding: 9px 8px; }
+  .mini-player-controls > button:first-child { min-height: 44px; gap: 9px; }
+  .mini-player-next { display: grid; place-items: center; width: 44px; height: 44px; margin-left: 0; padding: 0; }
+  .bottom-nav { background: #edf5ef; backdrop-filter: none; padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+  .bottom-nav > div { height: var(--nav-height); }
+  .bottom-nav button { position: relative; gap: 3px; }
+  .bottom-nav button > svg { box-sizing: content-box; padding: 4px 19px; border-radius: 20px; }
+  .bottom-nav button[aria-current='page'] > svg { background: #e2d8f4; }
+  .bottom-nav button > span { font-size: 11px; line-height: 1.2; }
+
+  .secondary-page { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+  .secondary-page h1 { font-size: 30px; margin-bottom: 18px; }
+  .secondary-page input[type='search'] { font-size: 16px; min-height: 48px; }
+  .secondary-page .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .secondary-page [aria-label='Library filters'] { gap: 7px; }
+  .secondary-page [aria-label='Library filters'] button { flex: 1; min-width: 0; min-height: 44px; padding-inline: 8px; font-size: 13px; }
+
+  .track-row { gap: 8px; padding-inline: 4px; }
+  .track-row > button:first-child { gap: 10px; min-height: 48px; }
+  .track-row > .tap-44 { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; padding: 0; }
+  .tap-44::after { display: none; }
+  .tap-44 { min-width: 44px; min-height: 44px; }
+
+  .full-player { overscroll-behavior: contain; }
+  .full-player-content { min-height: calc(440px + env(safe-area-inset-top, 0px) + var(--safe-bottom)); }
+  .player-header { flex-shrink: 0; padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 8px; }
+  .player-header button, .player-track-info button, .player-transport button { display: grid; place-items: center; flex-shrink: 0; min-height: 44px; min-width: 44px; }
+  .player-track-info { padding: 12px 22px 8px; gap: 12px; }
+  .player-track-info h1 { font-size: 25px; }
+  .player-seek { padding-inline: 22px; }
+  .full-player input[type='range'].pesto-range { height: 44px; margin: 0; }
+  .player-transport { padding: 8px 20px 10px; gap: 2px; }
+  .player-volume { padding: 0 24px calc(16px + var(--safe-bottom)); }
+  .player-queue { overscroll-behavior-y: contain; }
+
+  .collection-dismiss { height: max(24px, env(safe-area-inset-top, 0px)); }
+  .collection-header { padding: 18px 16px 12px; gap: 12px; }
+  .collection-header > img, .collection-header > [role='img'] { width: 64px; height: 64px; }
+  .collection-header h2 { font-size: 22px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .collection-header > button { flex-shrink: 0; display: grid; place-items: center; }
+  .collection-actions { padding-inline: 16px; gap: 10px; }
+  .collection-actions button { min-height: 44px; }
+  .collection-tracks { padding-bottom: calc(20px + var(--safe-bottom)); overscroll-behavior-y: contain; }
+}
+
+@media (max-width: 359px) {
+  .pesto-app { --mobile-gutter: 16px; }
+  .page-heading h1 { font-size: 26px; }
+  .featured-copy { padding: 16px; }
+  .featured-copy h2 { font-size: 27px; }
+  .feature-label { font-size: 8px; }
+  .record-scene { width: 96px; height: 96px; }
+  .vinyl-record { width: 96px; height: 96px; }
+  .mood-tile { padding: 10px; gap: 7px; }
+  .mood-symbol { font-size: 25px; }
+  .mood-info strong { font-size: 12px; }
+  .player-transport { padding-inline: 12px; }
+  .player-track-info, .player-seek { padding-inline: 18px; }
+}
+
+@media (min-width: 600px) and (max-width: 1023px) {
+  .pesto-app { --mobile-gutter: 28px; }
+  .mobile-break { display: none; }
+  .mood-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .featured-copy { padding: 24px; }
+  .featured-copy h2 { font-size: 36px; }
+  .record-scene { right: 12%; transform: translateY(-50%) scale(1.5); }
+}
+
+/* Landscape phones keep transport controls beside the artwork or queue. */
+@media (min-width: 600px) and (max-width: 1023px) and (max-height: 500px) {
+  .full-player-content {
+    width: 100%;
+    min-height: 320px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    grid-template-rows: auto 1fr auto auto auto;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+  .player-header { grid-column: 1 / -1; padding-top: max(6px, env(safe-area-inset-top, 0px)); }
+  .player-artwork, .player-queue { grid-column: 1; grid-row: 2 / 6; margin-bottom: 16px; }
+  .player-track-info { grid-column: 2; grid-row: 2; align-self: end; padding-top: 0; padding-bottom: 0; }
+  .player-seek { grid-column: 2; grid-row: 3; }
+  .player-transport { grid-column: 2; grid-row: 4; padding-top: 0; padding-bottom: 0; }
+  .player-transport button.rounded-full { width: 60px; height: 60px; }
+  .player-volume { grid-column: 2; grid-row: 5; padding-bottom: max(8px, var(--safe-bottom)); }
+}
+
+/* Compact queue: on a 480px-tall screen the queue list needs the room the volume row and big title take. */
+@media (max-width: 1023px) and (max-height: 599px) {
+  .full-player.queue-open .player-volume { display: none; }
+  .full-player.queue-open .player-track-info { padding-top: 2px; padding-bottom: 0; }
+  .full-player.queue-open .player-song-title { font-size: 18px; }
+  .full-player.queue-open .player-transport { padding-bottom: calc(8px + var(--safe-bottom)); }
+}
+
+@media (hover: none) {
+  .mood-tile:hover, .primary-play:hover, .album-card:hover .album-art > img { transform: none; box-shadow: none; }
+  .album-open { display: none; }
+  .mood-tile:active, .primary-play:active { filter: brightness(.95); }
+}

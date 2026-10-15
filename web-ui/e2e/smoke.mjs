@@ -1,0 +1,11 @@
+import { chromium } from 'playwright-core';
+const b = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
+const ctx = await b.newContext({ viewport: { width: 320, height: 480 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+const p = await ctx.newPage();
+p.on('console', m => console.log('console', m.type(), m.text()));
+p.on('pageerror', e => console.log('pageerror', e.message));
+await p.goto('http://127.0.0.1:5173');
+await p.waitForTimeout(1500);
+await p.screenshot({ path: 'shots/home.png' });
+console.log(await p.title());
+await b.close();

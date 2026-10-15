@@ -1,0 +1,1 @@
+{ "name": "pesto-e2e", "private": true, "type": "module", "version": "0.0.1", "dependencies": { "playwright-core": "1.49.1" } }
