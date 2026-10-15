@@ -1,0 +1,6 @@
+# OPTIONAL. Lets the app (user pesto) shut down / reboot the Pi when polkit does
+# not already allow it. Install by hand, as root, only if the Settings shutdown
+# button reports "Shutdown failed":
+#   sudo install -m 0440 pesto-power.sudoers.example /etc/sudoers.d/pesto-power
+#   sudo visudo -c
+pesto ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot

@@ -1,0 +1,30 @@
+# Wi-Fi song uploader (LAN web page on :8080, per-session token shown as a QR on
+# the player's "Add music" screen). Runs separately from the UI so a big upload
+# can't starve it; the cap below is the real memory budget (estimate: Flask +
+# Werkzeug idle is roughly 30-45 MB on a Pi Zero 2 W; not measured on hardware).
+# Rationale: The-Brain/Decisions "Pesto Player drops Spotify for local music".
+[Unit]
+Description=Pesto Player Wi-Fi music uploader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pesto
+Environment=PESTO_MUSIC_DIR=/home/pesto/Music
+Environment=PESTO_STATE_DIR=/home/pesto/.pesto
+Environment=PESTO_UPLOAD_PORT=8080
+ExecStart=/usr/bin/python3 /home/pesto/pesto-player/pi/uploader/server.py
+Restart=on-failure
+RestartSec=5
+MemoryMax=64M
+# Only the music folder and the app's state dir are writable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/pesto/Music /home/pesto/.pesto
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
