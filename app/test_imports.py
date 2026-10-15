@@ -28,25 +28,27 @@ print()
 print("Testing core dependencies...")
 core_ok = True
 core_ok &= test_import("pygame")
-core_ok &= test_import("vlc")
+test_import("vlc")  # optional: the app falls back to a simulated player
 
 print()
 print("Testing optional dependencies...")
 test_import("mutagen")
+test_import("flask")
+test_import("qrcode")
 
 print()
 print("Testing project modules...")
 modules_ok = True
 modules_ok &= test_import("config")
-modules_ok &= test_import("audio", "player")
-modules_ok &= test_import("library", "player")
-modules_ok &= test_import("widgets", "ui")
-modules_ok &= test_import("screen_manager", "ui")
-modules_ok &= test_import("now_playing", "ui")
-modules_ok &= test_import("library", "ui")
-modules_ok &= test_import("settings", "ui")
-modules_ok &= test_import("battery", "hardware")
-modules_ok &= test_import("buttons", "hardware")
+for m in ("audio", "library", "playlist", "prefs"):
+    modules_ok &= test_import(m, "player")
+for m in ("widgets", "screen_manager", "text_cache", "theme", "keyboard", "now_playing", "queue",
+          "mini_player", "volume_hud", "library", "songs", "artists", "albums", "playlists",
+          "search", "settings", "add_music"):
+    modules_ok &= test_import(m, "ui")
+for m in ("battery", "buttons", "system"):
+    modules_ok &= test_import(m, "hardware")
+modules_ok &= test_import("main")
 
 print()
 print("=" * 60)
@@ -56,7 +58,7 @@ if core_ok and modules_ok:
     print("   You can run: python main.py")
 elif not core_ok:
     print("❌ Core dependencies missing!")
-    print("   Install with: pip install pygame python-vlc")
+    print("   Install with: pip install pygame")
 elif not modules_ok:
     print("❌ Project module errors!")
     print("   Check for syntax errors in source files")

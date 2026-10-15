@@ -1,186 +1,66 @@
 """
-Configuration file for Pesto Player
-Contains all constants for GPIO pins, colors, screen dimensions, and settings
+Configuration for Pesto Player: hardware pins, audio, paths and mode detection.
+
+UI layout constants and colours live in ui/theme.py, not here.
 """
+import os
 
-# ============================================================================
-# SCREEN CONFIGURATION
-# ============================================================================
-SCREEN_WIDTH = 320   # Portrait mode width
-SCREEN_HEIGHT = 480  # Portrait mode height
-FPS = 30             # Target frames per second
+# ---------------------------------------------------------------- screen
+SCREEN_WIDTH = 320   # portrait
+SCREEN_HEIGHT = 480
+FPS = 30             # initial frame cap; the ScreenManager lowers it when idle
 
-# Touch target minimum size (finger-friendly)
-MIN_TOUCH_SIZE = 60
+# ------------------------------------------------------------------ GPIO
+GPIO_POWER_BUTTON = 26
+GPIO_VOLUME_UP = 5
+GPIO_VOLUME_DOWN = 6
+GPIO_BOUNCE_TIME = 0.1       # seconds
+GPIO_LONG_PRESS_TIME = 3.0   # seconds: long press on power = shutdown
 
-# ============================================================================
-# COLOR SCHEME (Dark theme with white/purple accents)
-# ============================================================================
-# Background colors
-COLOR_BG_DARK = (18, 18, 18)        # Main background
-COLOR_BG_DARKER = (12, 12, 12)      # Darker sections
-COLOR_BG_LIGHTER = (30, 30, 30)     # Lighter sections (cards)
+# ----------------------------------------------------------------- audio
+VOLUME_DEFAULT = 50
+VOLUME_STEP = 5
+VOLUME_MIN = 0
+VOLUME_MAX = 100
 
-# Accent colors
-COLOR_PRIMARY = (138, 43, 226)      # Purple accent (BlueViolet)
-COLOR_PRIMARY_DARK = (98, 30, 160)  # Darker purple for pressed states
-COLOR_PRIMARY_LIGHT = (178, 83, 255) # Lighter purple for highlights
-
-# Text colors
-COLOR_TEXT_PRIMARY = (255, 255, 255)    # White text
-COLOR_TEXT_SECONDARY = (180, 180, 180)  # Gray text
-COLOR_TEXT_DISABLED = (100, 100, 100)   # Disabled text
-
-# UI element colors
-COLOR_BORDER = (60, 60, 60)         # Border color
-COLOR_PROGRESS = (138, 43, 226)     # Progress bar color
-COLOR_SUCCESS = (46, 213, 115)      # Success/connected indicator
-COLOR_WARNING = (255, 195, 0)       # Warning indicator
-COLOR_ERROR = (235, 77, 75)         # Error indicator
-
-# ============================================================================
-# GPIO PIN CONFIGURATION (Raspberry Pi)
-# ============================================================================
-GPIO_POWER_BUTTON = 26    # Power button
-GPIO_VOLUME_UP = 5        # Volume up button
-GPIO_VOLUME_DOWN = 6      # Volume down button
-
-# GPIO settings
-GPIO_BOUNCE_TIME = 0.1    # Bounce time in seconds
-GPIO_LONG_PRESS_TIME = 3.0  # Long press duration in seconds
-
-# ============================================================================
-# AUDIO CONFIGURATION
-# ============================================================================
-VOLUME_DEFAULT = 50       # Default volume percentage
-VOLUME_STEP = 5           # Volume change step
-VOLUME_MIN = 0            # Minimum volume
-VOLUME_MAX = 100          # Maximum volume
-
-import os as _o
-MUSIC_DIRECTORY = _o.environ.get("PESTO_MUSIC_DIR", "~/Music")  # env override for tests/dev
-
-# Supported audio formats
+MUSIC_DIRECTORY = os.environ.get("PESTO_MUSIC_DIR", "~/Music")  # env override for tests/dev
 SUPPORTED_FORMATS = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.opus']  # matched case-insensitively
+# pi/uploader/server.py keeps its own copy of this list; test_server.py checks they match.
 
-# ============================================================================
-# BATTERY CONFIGURATION
-# ============================================================================
-BATTERY_I2C_ADDRESS = 0x36        # MAX17048 I2C address
-BATTERY_UPDATE_INTERVAL = 10.0    # Update interval in seconds
-BATTERY_LOW_WARNING = 15          # Low battery warning percentage
-BATTERY_CRITICAL = 5              # Critical battery (shutdown) percentage
+# --------------------------------------------------------------- battery
+BATTERY_I2C_ADDRESS = 0x36   # MAX17048
+BATTERY_LOW_WARNING = 15     # percent
+BATTERY_CRITICAL = 5         # percent; 3 consecutive readings => shutdown
+MOCK_BATTERY_LEVEL = 85      # TEST_MODE only
 
-# ============================================================================
-# UI LAYOUT CONSTANTS
-# ============================================================================
+# ------------------------------------------------------------- bluetooth
+# Scaffolding only (hardware/bluetooth.py); Settings shows "not available yet".
+BLUETOOTH_SCAN_TIMEOUT = 30
+BLUETOOTH_CONNECT_TIMEOUT = 15
+AUDIO_OUTPUT_SPEAKER = "speaker"
+AUDIO_OUTPUT_BLUETOOTH = "bluetooth"
 
-# Status bar (top of screen)
-STATUS_BAR_HEIGHT = 30
-STATUS_BAR_PADDING = 10
 
-# Now Playing screen layout
-ALBUM_ART_SIZE = 280              # Square album art
-ALBUM_ART_Y = 50                  # Y position from top
-
-# Control button sizes
-BUTTON_LARGE = 80                 # Play/pause button
-BUTTON_MEDIUM = 70                # Skip buttons
-BUTTON_SMALL = 60                 # Navigation buttons
-
-# Progress bar
-PROGRESS_BAR_HEIGHT = 4
-PROGRESS_BAR_PADDING = 20
-
-# Bottom navigation bar
-NAV_BAR_HEIGHT = 60
-NAV_BAR_BUTTON_WIDTH = 100
-
-# Library screen layout
-LIST_ITEM_HEIGHT = 70
-LIST_PADDING = 10
-TAB_HEIGHT = 50
-
-# Settings screen layout
-SETTING_ITEM_HEIGHT = 60
-SLIDER_WIDTH = 200
-SLIDER_HEIGHT = 40
-
-# ============================================================================
-# TIMING CONSTANTS
-# ============================================================================
-METADATA_UPDATE_INTERVAL = 1.0    # Update current song metadata (seconds)
-UI_UPDATE_INTERVAL = 0.033        # UI update interval (~30 FPS)
-ALBUM_ART_CACHE_SIZE = 20         # Number of album arts to cache
-
-# ============================================================================
-# TESTING/DEVELOPMENT MODE
-# ============================================================================
+# ------------------------------------------------------------ test mode
 def _detect_test_mode():
     """PESTO_TEST=1/0 forces the mode; otherwise TEST_MODE is on unless we look
     like the real device (a Linux framebuffer and GPIO are both present)."""
-    import os
     forced = os.environ.get("PESTO_TEST")
     if forced is not None:
         return forced.strip().lower() not in ("0", "false", "no", "")
-    on_device = os.path.exists("/dev/fb0") and os.path.exists("/dev/gpiomem")
-    return not on_device
+    return not (os.path.exists("/dev/fb0") and os.path.exists("/dev/gpiomem"))
 
 
 TEST_MODE = _detect_test_mode()  # auto-detected; override with env PESTO_TEST=0/1
 
-# Persisted user state, playlists and the uploader's "new files" flag
-import os as _os
-STATE_DIR = _os.path.expanduser(_os.environ.get("PESTO_STATE_DIR", "~/.pesto"))
-STATE_FILE = _os.path.join(STATE_DIR, "state.json")
-INDEX_FILE = _os.path.join(STATE_DIR, "library_index.json")
-PREFS_FILE = _os.path.join(STATE_DIR, "prefs.json")
-PLAYLIST_DIR = _os.path.join(STATE_DIR, "playlists")
-DIRTY_FLAG = _os.path.join(STATE_DIR, "library.dirty")
+# ----------------------------------------------------- persisted state
+STATE_DIR = os.path.expanduser(os.environ.get("PESTO_STATE_DIR", "~/.pesto"))
+STATE_FILE = os.path.join(STATE_DIR, "state.json")           # volume, queue, last track
+INDEX_FILE = os.path.join(STATE_DIR, "library_index.json")   # metadata cache
+PREFS_FILE = os.path.join(STATE_DIR, "prefs.json")           # screen timeout, brightness
+PLAYLIST_DIR = os.path.join(STATE_DIR, "playlists")
+DIRTY_FLAG = os.path.join(STATE_DIR, "library.dirty")        # touched by the uploader per batch
 UPLOADER_PORT = 8080
-UPLOADER_INFO_FILE = _os.path.join(STATE_DIR, "uploader.json")  # {"token":..,"port":..}
-BACKLIGHT_PATH = "/sys/class/backlight"  # optional; brightness skipped if absent
+UPLOADER_INFO_FILE = os.path.join(STATE_DIR, "uploader.json")  # {"token":..,"port":..}
+BACKLIGHT_PATH = "/sys/class/backlight"   # optional; brightness/sleep skip it if absent
 APP_VERSION = "2.0.0"
-
-# Keyboard mappings for testing (when TEST_MODE = True)
-KEY_VOLUME_UP = 'up'              # Arrow up
-KEY_VOLUME_DOWN = 'down'          # Arrow down
-KEY_POWER = 'escape'              # ESC key
-
-# Mock data for testing
-MOCK_BATTERY_LEVEL = 85           # Mock battery percentage
-MOCK_SONGS = [
-    {
-        'title': 'Test Song 1',
-        'artist': 'Test Artist 1',
-        'album': 'Test Album 1',
-        'duration': 240,
-        'path': None
-    },
-    {
-        'title': 'Test Song 2',
-        'artist': 'Test Artist 2',
-        'album': 'Test Album 2',
-        'duration': 180,
-        'path': None
-    }
-]
-
-# ============================================================================
-# FONT CONFIGURATION
-# ============================================================================
-# Using pygame's default font for now, can be customized later
-FONT_SIZE_LARGE = 24
-FONT_SIZE_MEDIUM = 18
-FONT_SIZE_SMALL = 14
-FONT_SIZE_TINY = 12
-
-# ============================================================================
-# BLUETOOTH CONFIGURATION
-# ============================================================================
-BLUETOOTH_SCAN_TIMEOUT = 30       # Bluetooth scan timeout in seconds
-BLUETOOTH_CONNECT_TIMEOUT = 15    # Connection timeout in seconds
-
-# Audio output modes
-AUDIO_OUTPUT_SPEAKER = "speaker"
-AUDIO_OUTPUT_BLUETOOTH = "bluetooth"

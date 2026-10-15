@@ -1,20 +1,20 @@
-# Pesto Player - Phase 1 Requirements
+# Pesto Player (local music only)
 
-# Core dependencies
-pygame>=2.5.0          # UI rendering and input handling
-python-vlc>=3.0.0      # Audio playback
+# Core
+pygame>=2.5.0          # UI rendering and input
+python-vlc>=3.0.0      # Audio playback (needs the VLC libraries; app falls back to a simulated player without it)
+mutagen>=1.47.0        # Tags, durations, embedded cover art
 
-# Optional: For actual MP3 metadata extraction
-mutagen>=1.47.0        # Audio metadata and album art extraction
+# Wi-Fi uploader + QR code on the Add music screen
+flask>=3.0             # pi/uploader/server.py
+qrcode>=7.4            # QR code (optional: URL text is shown without it)
+pillow                 # pulled in by qrcode on some versions
 
-# Hardware dependencies (only needed on Raspberry Pi)
-# Uncomment these when deploying to actual hardware:
-# gpiozero>=2.0          # GPIO button handling
-# RPi.GPIO>=0.7.1        # GPIO access
-# adafruit-circuitpython-max1704x  # Battery monitor via I2C
-# adafruit-blinka        # CircuitPython compatibility layer
+# Hardware (Raspberry Pi only; optional, the app runs without them)
+# gpiozero>=2.0                    # GPIO buttons
+# adafruit-circuitpython-max1704x  # battery gauge (else /sys/class/power_supply, else "No sensor")
+# adafruit-blinka
+# evdev                            # used by pi/pesto_fb_launch.py for touch
 
-# Future dependencies (Phase 2)
-# requests>=2.31.0       # HTTP client for Mopidy API
-# mopidy>=3.4.0          # Music server (installed separately)
-# mopidy-spotify         # Spotify integration (installed separately)
+# Tests
+# pytest
