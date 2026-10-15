@@ -45,7 +45,7 @@ _CTRL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def clean_text(value):
-    """Make a tag/filename safe to render: undo surrogateescape (os.walk gives
+    r"""Make a tag/filename safe to render: undo surrogateescape (os.walk gives
     'bad\udcffname' for non-UTF-8 filenames), drop NUL/control characters."""
     if value is None:
         return ""

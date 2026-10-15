@@ -8,6 +8,8 @@ import pytest
 from player import library as libmod
 from player.library import MusicLibrary, track_id
 
+SUR = chr(0xDCFF)   # a lone surrogate, built at runtime (never a literal)
+
 
 def touch(path, data=b"not really audio"):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -232,7 +234,7 @@ def test_playlist_corrupt_file_ignored(tmp_path):
 # ------------------------------------------------------- text sanitising
 def test_clean_text_handles_surrogates_and_nul():
     from player.library import clean_text
-    s = clean_text("bad\udcffname\x00x\n")
+    s = clean_text("bad" + SUR + "name\x00x\n")
     assert "\x00" not in s and "\n" not in s
     s.encode("utf-8")  # must be encodable: no lone surrogates left
     assert clean_text(None) == ""
@@ -251,7 +253,7 @@ def test_scan_sanitises_filename_and_tags(tmp_path, monkeypatch):
 
     def fake(self, path):
         if path.endswith("tagged.mp3"):
-            return {"title": "T\x00itle\udcff", "artist": "A\x00", "album": "Al\x01b"}
+            return {"title": "T\x00itle" + SUR, "artist": "A\x00", "album": "Al\x01b"}
         return orig(self, path)
 
     monkeypatch.setattr(libmod.MusicLibrary, "_read_tags", fake)
@@ -280,7 +282,7 @@ def test_art_cache_is_bounded_by_bytes_and_keeps_sizes_separate(tagged, monkeypa
 
 def test_surrogate_path_is_sanitised_without_touching_filesystem(tmp_path):
     lib = MusicLibrary(str(tmp_path), index_path=str(tmp_path / "i.json"))
-    path = str(tmp_path / "Ann - bad\udcffname\x00.mp3")
+    path = str(tmp_path / ("Ann - bad" + SUR + "name\x00.mp3"))
     meta = lib._meta_for(path)
     tr = lib._make_track(path, meta)
     for k in ("title", "artist", "album"):
