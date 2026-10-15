@@ -1,0 +1,20 @@
+# Pesto Player - Phase 1 Requirements
+
+# Core dependencies
+pygame>=2.5.0          # UI rendering and input handling
+python-vlc>=3.0.0      # Audio playback
+
+# Optional: For actual MP3 metadata extraction
+mutagen>=1.47.0        # Audio metadata and album art extraction
+
+# Hardware dependencies (only needed on Raspberry Pi)
+# Uncomment these when deploying to actual hardware:
+# gpiozero>=2.0          # GPIO button handling
+# RPi.GPIO>=0.7.1        # GPIO access
+# adafruit-circuitpython-max1704x  # Battery monitor via I2C
+# adafruit-blinka        # CircuitPython compatibility layer
+
+# Future dependencies (Phase 2)
+# requests>=2.31.0       # HTTP client for Mopidy API
+# mopidy>=3.4.0          # Music server (installed separately)
+# mopidy-spotify         # Spotify integration (installed separately)
