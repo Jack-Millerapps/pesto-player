@@ -21,6 +21,16 @@ def _font_path():
     return None
 
 
+def clean_text(text):
+    """Make text safe for pygame: replace lone surrogates, drop NULs/control chars."""
+    if not isinstance(text, str):
+        text = str(text)
+    text = text.encode("utf-8", "replace").decode("utf-8")
+    if text.isprintable():
+        return text
+    return "".join(" " if c in "\t\n\r" else c for c in text if c.isprintable() or c in "\t\n\r")
+
+
 def get_font(size, bold=False):
     """Cached pygame Font of `size` px. `bold` uses synthetic bold."""
     key = (size, bool(bold))
@@ -38,6 +48,7 @@ def get_font(size, bold=False):
 
 def render(text, size, color, bold=False):
     """Cached rendered text Surface; same args return the same Surface object."""
+    text = clean_text(text)
     key = (text, size, tuple(color), bool(bold))
     s = _text.get(key)
     if s is not None:
@@ -51,7 +62,7 @@ def render(text, size, color, bold=False):
 
 
 def text_width(text, size, bold=False):
-    return get_font(size, bold).size(text)[0]
+    return get_font(size, bold).size(clean_text(text))[0]
 
 
 _ell = {}
@@ -59,6 +70,7 @@ _ell = {}
 
 def ellipsize(text, size, max_w, bold=False):
     """Return `text` truncated with an ellipsis so it fits in max_w pixels."""
+    text = clean_text(text)
     if max_w <= 0:
         return ""
     key = (text, size, max_w, bool(bold))

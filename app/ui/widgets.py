@@ -172,6 +172,7 @@ class ScrollList:
         self._dragging = False
         self._long_fired = False
         self._pressed_idx = None
+        self._stopped_flick = False
         self._samples = deque(maxlen=8)
 
     # --- data ---
@@ -204,8 +205,10 @@ class ScrollList:
         if kind == "down":
             if not self.rect.collidepoint(pos):
                 return False
+            stopping = self.velocity != 0.0
             self.velocity = 0.0                      # a new touch stops any flick
             self._reset_touch()
+            self._stopped_flick = stopping           # this tap only stops the flick
             self._down = True
             self._start = pos
             self._start_scroll = self.scroll
@@ -233,7 +236,7 @@ class ScrollList:
             travel = math.hypot(pos[0] - self._start[0], pos[1] - self._start[1])
             idx = self._pressed_idx
             quick = (now - self._t0) * 1000.0 <= theme.TAP_MAX_MS
-            is_tap = (not self._dragging and not self._long_fired and travel <= theme.TAP_SLOP and quick)
+            is_tap = (not self._stopped_flick and not self._dragging and not self._long_fired and travel <= theme.TAP_SLOP and quick)
             was_drag = self._dragging
             self._pressed_idx = None
             self._down = False
@@ -395,6 +398,16 @@ class TabBar:
             return None
         return min(len(self.tabs) - 1, int((pos[0] - self.rect.x) // (self.rect.w / float(len(self.tabs)))))
 
+    def _label_size(self, label, bold, cell_w=None):
+        cell_w = cell_w or self.rect.w // max(1, len(self.tabs))
+        size = theme.FS_SMALL + 1
+        while size > 9 and text_cache.text_width(label, size, bold) > cell_w - 4:
+            size -= 1
+        return size
+
+    def label_width(self, label, bold=False):
+        return text_cache.text_width(label, self._label_size(label, bold), bold)
+
     def set_active(self, name):
         if name != self.active:
             self.active = name
@@ -432,7 +445,7 @@ class TabBar:
             col = theme.PRIMARY_LIGHT if on else theme.TEXT_DIM
             if on:
                 pygame.draw.rect(surface, theme.PRIMARY, (cell.x + 12, cell.y + 1, cell.w - 24, 3))
-            img = text_cache.render(label, theme.FS_SMALL + 1, col, bold=on)
+            img = text_cache.render(label, self._label_size(label, on, cell.w), col, bold=on)
             surface.blit(img, img.get_rect(center=cell.center))
         self.dirty = False
 

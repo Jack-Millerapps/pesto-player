@@ -228,3 +228,99 @@ def test_overlay_drawn_and_dirty():
     sm.add_overlay(h)
     assert sm.draw()
     assert HUD.drawn == 1
+
+
+# ---- review fixes ----
+def test_overlay_dirty_reset_after_hud_expires_real_hud():
+    from ui.volume_hud import VolumeHUD
+    sm, scr, surf = make()
+    sm.show("library")
+    sm.draw()
+    hud = VolumeHUD()
+    sm.add_overlay(hud)
+    hud.show(50)
+    assert sm.draw()
+    sm.update(2.0)                       # HUD expires, needs one erase redraw
+    assert sm.draw()
+    assert sm.draw() == []               # no perpetual full redraws
+    sm.update(2.0)
+    assert sm.target_fps() == theme.FPS_IDLE
+
+
+def test_overlay_stuck_dirty_flag_is_cleared():
+    sm, scr, surf = make()
+    sm.show("library")
+
+    class O:
+        active = False
+        dirty = True
+        def update(self, dt): pass
+        def draw(self, s): pass
+
+    o = O()
+    sm.add_overlay(o)
+    sm.draw()
+    assert o.dirty is False
+    assert sm.draw() == []
+
+
+def test_idle_fps_reached_during_playback_with_periodic_redraw():
+    sm, scr, surf = make()
+
+    class Mini:
+        dirty = True
+        def handle_touch(self, pos, kind): return False
+        def update(self, dt): pass
+        def draw(self, s): self.dirty = False
+
+    sm.mini_player = Mini()
+    sm.show("library")
+    sm.draw()
+    fps = None
+    for frame in range(60):              # 2 s at 30 fps, dirty once per second
+        sm.update(1 / 30.0)
+        if frame % 30 == 0:
+            sm.mini_player.dirty = True
+        sm.draw()
+        fps = sm.target_fps()
+    assert fps == theme.FPS_IDLE
+    sm.handle_touch((100, 100), "down")
+    assert sm.target_fps() == theme.FPS_ACTIVE
+
+
+def test_continuous_animation_keeps_active_fps():
+    sm, scr, surf = make()
+    sm.show("library")
+    for _ in range(60):
+        sm.update(1 / 30.0)
+        scr["library"].dirty = True
+        sm.draw()
+    assert sm.target_fps() == theme.FPS_ACTIVE
+
+
+def test_status_bar_none_battery_default_and_hidden():
+    from ui.screen_manager import StatusBar
+    sb = StatusBar()
+    assert sb.battery_level is None
+    surf = pygame.Surface((320, 480))
+    surf.fill((1, 2, 3))
+    sb.draw(surf)
+    blank = surf.subsurface((0, 0, 100, 22)).copy()
+    sb.set_battery_level(80)
+    assert sb.battery_level == 80
+    sb.draw(surf)
+    sb.set_battery_level(None)
+    assert sb.battery_level is None and sb.dirty
+    surf.fill((1, 2, 3))
+    sb.draw(surf)
+    again = surf.subsurface((0, 0, 100, 22))
+    assert pygame.image.tostring(again, "RGB") == pygame.image.tostring(blank, "RGB")
+
+
+def test_toast_does_not_overlap_volume_hud():
+    from ui.volume_hud import VolumeHUD
+    sm, scr, surf = make()
+    sm.show("library")
+    hud = VolumeHUD()
+    assert not sm.toast_rect().colliderect(hud.rect)
+    assert sm.toast_rect().bottom <= theme.TAB_Y

@@ -271,3 +271,43 @@ def test_keyboard_keys_and_layout():
         k.handle_touch(c, "up")
     assert keys == ["q", "\b"]
     assert enters == [1] and closes == [1]
+
+
+# ---- review fixes ----
+def test_text_cache_never_raises_on_bad_strings():
+    for s in ("bad\udcffname", "nul\x00byte", "tab\tnew\nline\x07", "\udc80", "", "\x00"):
+        img = text_cache.render(s, 14, (255, 255, 255))
+        assert img is not None
+    assert "\x00" not in text_cache.clean_text("a\x00b")
+    assert text_cache.text_width("bad\udcffname", 14) > 0
+    assert text_cache.ellipsize("bad\udcffname" * 10, 14, 60).endswith("...")
+
+
+def test_tab_labels_fit_cells():
+    labels = ["Now Playing", "Library", "Queue", "Settings"]
+    t = TabBar((0, 424, 320, 56), [("a", labels[0]), ("b", labels[1]), ("c", labels[2]), ("d", labels[3])])
+    surf = pygame.Surface((320, 480))
+    t.set_active("a")
+    t.draw(surf)
+    for lab in labels:
+        assert t.label_width(lab, True) <= 80 - 4
+
+
+def test_tap_that_stops_a_flick_does_not_fire_on_tap():
+    lst, calls, taps, longs, clock = make_list()
+    lst.handle_touch((50, 300), "down")
+    for y in (280, 250, 210, 160):
+        clock.advance(0.016)
+        lst.handle_touch((50, y), "move")
+    lst.handle_touch((50, 150), "up")
+    lst.update(0.016)
+    assert lst.velocity != 0
+    lst.handle_touch((50, 100), "down")
+    clock.advance(0.05)
+    lst.handle_touch((50, 100), "up")
+    assert taps == []
+    # a following ordinary tap works
+    lst.handle_touch((50, 100), "down")
+    clock.advance(0.05)
+    lst.handle_touch((50, 100), "up")
+    assert len(taps) == 1

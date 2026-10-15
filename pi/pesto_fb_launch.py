@@ -37,6 +37,20 @@ def changed_row_range(prev, cur, row_bytes, rows):
     return 0, rows - 1
 
 
+def row_runs(rects, h):
+    """Merge rects into sorted, disjoint (first, last) row runs (adjacent runs merge)."""
+    spans = sorted((max(0, r.top), min(h - 1, r.bottom - 1)) for r in rects if r.height > 0)
+    runs = []
+    for a, b in spans:
+        if b < a:
+            continue
+        if runs and a <= runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], max(runs[-1][1], b))
+        else:
+            runs.append((a, b))
+    return runs
+
+
 class FbPusher:
     """Writes rows of a pygame surface to the framebuffer fd."""
 
@@ -74,11 +88,13 @@ class FbPusher:
             self._write_rows(data, 0, self.h - 1)
             return
         if rects:
-            top = max(0, min(r.top for r in rects))
-            bot = min(self.h - 1, max(r.bottom - 1 for r in rects))
-            if bot >= top:
-                self._write_rows(data, top, bot)
-                self.prev = None      # region unknown relative to prev; resync on next flip
+            runs = row_runs(rects, self.h)
+            written = 0
+            for a, b in runs:
+                self._write_rows(data, a, b)
+                written += b - a + 1
+            self.last_rows = written
+            self.prev = None      # regions unknown relative to prev; resync on next flip
             return
         rng = changed_row_range(self.prev, data, self.row_bytes, self.h)
         self.prev = data

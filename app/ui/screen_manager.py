@@ -20,6 +20,7 @@ TABS = [("now_playing", "Now Playing"), ("library", "Library"),
 PUSH_TAB = "library"
 MAX_STACK = 4
 TOAST_S = 2.5
+ANIM_GAP = 0.25
 SHEET_ROW_H = 48
 
 
@@ -55,12 +56,13 @@ class StatusBar:
     """Top status bar: battery (left) and Bluetooth indicator (right)."""
 
     def __init__(self):
-        self.battery_level = 100
+        self.battery_level = None          # None = unknown: icon and percentage hidden
         self.bluetooth_connected = False
         self.dirty = True
 
     def set_battery_level(self, level):
-        level = max(0, min(100, int(level)))
+        if level is not None:
+            level = max(0, min(100, int(level)))
         if level != self.battery_level:
             self.battery_level = level
             self.dirty = True
@@ -75,15 +77,16 @@ class StatusBar:
         pygame.draw.rect(surface, theme.BG_DARK, r)
         pygame.draw.line(surface, theme.BORDER, (0, r.bottom - 1), (r.right, r.bottom - 1))
         lvl = self.battery_level
-        col = theme.ERROR if lvl <= 5 else theme.WARNING if lvl <= 15 else theme.SUCCESS
-        bx, by = theme.PAD, 6
-        pygame.draw.rect(surface, theme.TEXT_DIM, (bx, by, 26, 12), 1)
-        pygame.draw.rect(surface, theme.TEXT_DIM, (bx + 26, by + 3, 2, 6))
-        fw = int(22 * lvl / 100.0)
-        if fw > 0:
-            pygame.draw.rect(surface, col, (bx + 2, by + 2, fw, 8))
-        img = text_cache.render("%d%%" % lvl, theme.FS_SMALL, theme.TEXT_DIM)
-        surface.blit(img, (bx + 34, (theme.STATUS_H - img.get_height()) // 2))
+        if lvl is not None:
+            col = theme.ERROR if lvl <= 5 else theme.WARNING if lvl <= 15 else theme.SUCCESS
+            bx, by = theme.PAD, 6
+            pygame.draw.rect(surface, theme.TEXT_DIM, (bx, by, 26, 12), 1)
+            pygame.draw.rect(surface, theme.TEXT_DIM, (bx + 26, by + 3, 2, 6))
+            fw = int(22 * lvl / 100.0)
+            if fw > 0:
+                pygame.draw.rect(surface, col, (bx + 2, by + 2, fw, 8))
+            img = text_cache.render("%d%%" % lvl, theme.FS_SMALL, theme.TEXT_DIM)
+            surface.blit(img, (bx + 34, (theme.STATUS_H - img.get_height()) // 2))
         if self.bluetooth_connected:
             img = text_cache.render("BT", theme.FS_SMALL, theme.PRIMARY_LIGHT, bold=True)
             surface.blit(img, (r.right - theme.PAD - img.get_width(), (theme.STATUS_H - img.get_height()) // 2))
@@ -103,6 +106,7 @@ class ScreenManager:
         self._overlays = []
         self._full = True
         self._idle = 0.0
+        self._since_draw = 0.0
         self._capture = None               # touch gesture target
         self.toast_text = None
         self.toast_kind = "info"
@@ -212,6 +216,14 @@ class ScreenManager:
         self._sheet_dirty = True
         self._full = True
 
+    @staticmethod
+    def _is_active(o):
+        return bool(getattr(o, "active", getattr(o, "visible", False)))
+
+    def toast_rect(self):
+        # y 30-66, below the status bar and above the volume HUD band (y >= 72)
+        return pygame.Rect(theme.PAD, theme.STATUS_H + 6, theme.SCREEN_W - 2 * theme.PAD, 36)
+
     def add_overlay(self, overlay):
         """Overlay: object with active, dirty, update(dt), draw(surface)."""
         self._overlays.append(overlay)
@@ -227,6 +239,7 @@ class ScreenManager:
 
     def update(self, dt):
         self._idle += dt
+        self._since_draw += dt
         scr = self.current_screen()
         if scr is not None:
             scr.update(dt)
@@ -246,7 +259,7 @@ class ScreenManager:
 
     def _draw_toast(self, surface):
         col = {"error": theme.ERROR, "warn": theme.WARNING, "success": theme.SUCCESS}.get(self.toast_kind, theme.PRIMARY)
-        r = pygame.Rect(theme.PAD, theme.STATUS_H + 6, theme.SCREEN_W - 2 * theme.PAD, 36)
+        r = self.toast_rect()
         pygame.draw.rect(surface, theme.TOAST_BG, r, border_radius=8)
         pygame.draw.rect(surface, col, r, 2, border_radius=8)
         txt = text_cache.ellipsize(self.toast_text, theme.FS_BODY, r.w - 20)
@@ -273,7 +286,7 @@ class ScreenManager:
         scr = self.current_screen()
         if scr is None:
             return []
-        overlay_active = any(getattr(o, "active", False) for o in self._overlays)
+        overlay_active = any(self._is_active(o) for o in self._overlays)
         overlay_dirty = overlay_active or self._overlay_was_active or any(getattr(o, "dirty", False) for o in self._overlays)
         over = self.toast_text is not None or self._sheet is not None or overlay_active
         mini_vis = self._mini_visible()
@@ -307,7 +320,7 @@ class ScreenManager:
             rects.append(pygame.Rect(0, theme.TAB_Y, theme.SCREEN_W, theme.TAB_H))
         if full:
             for o in self._overlays:
-                if getattr(o, "active", False):
+                if self._is_active(o):
                     o.draw(surf)
             if self.toast_text is not None:
                 self._draw_toast(surf)
@@ -315,11 +328,18 @@ class ScreenManager:
                 self._draw_sheet(surf)
             rects = [pygame.Rect(0, 0, theme.SCREEN_W, theme.SCREEN_H)]
         self._full = False
+        for o in self._overlays:
+            if hasattr(o, "dirty"):
+                o.dirty = False            # handled: never leave a stuck flag
         self._toast_dirty = False
         self._sheet_dirty = False
         self._overlay_was_active = overlay_active
-        if rects:
+        # Idle is about input/animation, not periodic redraws: only back-to-back
+        # redraws (gap < ANIM_GAP s) count as animation and keep the fps up.
+        if rects and self._since_draw < ANIM_GAP:
             self._idle = 0.0
+        if rects:
+            self._since_draw = 0.0
         return rects
 
     # ---------------- touch ----------------
