@@ -152,3 +152,41 @@ def test_safe_name_unit():
     assert server.safe_name("..") is None and server.safe_name(None) is None
     assert server.safe_name("x\x00y.mp3") == "xy.mp3"
     assert server.safe_name("a" * 300 + ".mp3").endswith(".mp3")
+
+
+def test_non_ascii_token_gets_403_not_500(env):
+    c, _, _ = env
+    assert c.get("/?t=%E2%82%AC%E2%82%AC").status_code == 403
+    assert c.get("/files", headers={"X-Pesto-Token": "café"}).status_code == 403
+    assert c.get("/?t=%ED%A0%80").status_code == 403
+
+
+def test_name_limited_to_255_bytes_keeping_extension():
+    n = server.safe_name("日" * 200 + ".FLAC")
+    assert n.endswith(".flac") and len(n.encode("utf-8")) <= 255
+    n.encode("utf-8")
+    assert len(server.safe_name("a" * 400 + ".mp3").encode()) == 255
+
+
+def test_access_log_redacts_token():
+    import logging
+    server.create_app.__globals__  # module loaded
+    rec = logging.LogRecord("werkzeug", logging.INFO, "", 0,
+                            '%s - - [x] "GET /?t=SECRETtok&x=1 HTTP/1.1" 200 -', ("1.2.3.4",), None)
+    assert server._RedactToken().filter(rec)
+    assert "SECRETtok" not in rec.getMessage() and "t=REDACTED&x=1" in rec.getMessage()
+
+
+def test_upload_streams_once_and_leaves_no_parts_on_rejection(env):
+    c, music, _ = env
+    up(c, "ok.mp3", b"x" * 1000)
+    up(c, "bad.exe", b"x" * 1000)
+    assert os.listdir(music / ".incoming") == []
+    assert (music / "ok.mp3").stat().st_size == 1000
+
+
+def test_missing_content_length_rejected(env):
+    c, music, _ = env
+    r = c.post("/upload", headers={**H, "Transfer-Encoding": "chunked"},
+               input_stream=io.BytesIO(b""), content_type="multipart/form-data; boundary=x")
+    assert r.status_code in (411, 400)

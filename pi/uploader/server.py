@@ -24,6 +24,7 @@ PESTO_MAX_UPLOAD_MB (1024 per request), PESTO_TOKEN (tests only).
 
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -36,6 +37,7 @@ from flask import Flask, Request, jsonify, make_response, request
 
 # Keep in sync with app/config.py SUPPORTED_FORMATS (test_server.py checks this).
 ALLOWED_EXTENSIONS = (".mp3", ".flac", ".m4a", ".ogg", ".wav", ".opus")
+MAX_NAME_BYTES = 255
 _BAD_CHARS = re.compile(r"[^\w\-. ()&',]", re.UNICODE)
 
 
@@ -52,9 +54,25 @@ def safe_name(filename):
     ext = ext.lower()
     if ext not in ALLOWED_EXTENSIONS or not stem.strip(" ._"):
         return None
-    if len(stem) > 120:
-        stem = stem[:120].rstrip(" .")
+    room = MAX_NAME_BYTES - len(ext.encode("utf-8"))
+    if len(stem.encode("utf-8")) > room:        # filesystems limit bytes, not characters
+        stem = stem.encode("utf-8")[:room].decode("utf-8", "ignore").rstrip(" .")
+        if not stem.strip(" ._"):
+            return None
     return stem + ext
+
+
+class _RedactToken(logging.Filter):
+    """werkzeug logs 'GET /?t=<token>'; keep the token out of the logs."""
+    _RX = re.compile(r"([?&]t=)[^&\s\"']*")
+
+    def filter(self, record):
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        record.msg, record.args = self._RX.sub(r"\1REDACTED", msg), ()
+        return True
 
 
 def _free_bytes(path):
@@ -77,6 +95,9 @@ def create_app(music_dir=None, state_dir=None, token=None, min_free_mb=None,
                       else os.environ.get("PESTO_MAX_UPLOAD_MB", 1024)) * 1024 * 1024)
     port = int(port or os.environ.get("PESTO_UPLOAD_PORT", 8080))
     token = token or os.environ.get("PESTO_TOKEN") or secrets.token_urlsafe(16)
+    wlog = logging.getLogger("werkzeug")
+    if not any(isinstance(f, _RedactToken) for f in wlog.filters):
+        wlog.addFilter(_RedactToken())
 
     os.makedirs(incoming, exist_ok=True)
     os.makedirs(state, exist_ok=True)
@@ -93,9 +114,13 @@ def create_app(music_dir=None, state_dir=None, token=None, min_free_mb=None,
 
     class SpoolRequest(Request):
         # Spool large multipart parts into .incoming (disk) rather than RAM/tmp.
+        # The body streams straight into .incoming/*.part (one write); upload() then
+        # renames that file into place. teardown removes anything left over.
         def _get_file_stream(self, total_content_length, content_type,
                              filename=None, content_length=None):
-            return tempfile.NamedTemporaryFile(dir=incoming, suffix=".part")
+            f = tempfile.NamedTemporaryFile(dir=incoming, suffix=".part", delete=False)
+            self.__dict__.setdefault("_pesto_parts", []).append(f.name)
+            return f
 
     app = Flask(__name__)
     app.request_class = SpoolRequest
@@ -112,11 +137,24 @@ def create_app(music_dir=None, state_dir=None, token=None, min_free_mb=None,
         except OSError:
             pass
 
+    token_bytes = token.encode("utf-8")
+
     def authorised(post):
         supplied = request.headers.get("X-Pesto-Token")
         if supplied is None and not post:
             supplied = request.args.get("t")
-        return bool(supplied) and hmac.compare_digest(str(supplied), token)
+        if not supplied:
+            return False
+        # compare bytes: compare_digest raises TypeError on non-ASCII str
+        return hmac.compare_digest(str(supplied).encode("utf-8", "surrogatepass"), token_bytes)
+
+    @app.teardown_request
+    def drop_leftover_parts(_exc):
+        for name in request.__dict__.get("_pesto_parts", []):
+            try:
+                os.remove(name)
+            except OSError:
+                pass
 
     @app.before_request
     def gate():
@@ -162,8 +200,11 @@ def create_app(music_dir=None, state_dir=None, token=None, min_free_mb=None,
 
     @app.post("/upload")
     def upload():
-        clen = request.content_length or 0
-        if clen and _free_bytes(music) - clen < min_free:
+        # Checked before the body is read/parsed, so a too-big upload writes nothing.
+        clen = request.content_length
+        if clen is None:
+            return jsonify(error="Content-Length required.", results=[]), 411
+        if _free_bytes(music) - clen < min_free:
             return jsonify(error="Not enough free space on the player.", results=[]), 507
         results, saved = [], 0
         for up in request.files.getlist("files"):
@@ -174,10 +215,12 @@ def create_app(music_dir=None, state_dir=None, token=None, min_free_mb=None,
                                 "error": "Not an allowed audio file (" +
                                          ", ".join(ALLOWED_EXTENSIONS) + ")"})
                 continue
-            part = os.path.join(incoming, secrets.token_hex(8) + ".part")
+            part = getattr(up.stream, "name", None)
             dest = os.path.join(music, name)
             try:
-                up.save(part)
+                if not part or os.path.dirname(part) != incoming:
+                    raise OSError("Write failed")
+                up.stream.flush()
                 size = os.path.getsize(part)
                 if size == 0:
                     raise ValueError("Empty file")
@@ -194,7 +237,7 @@ def create_app(music_dir=None, state_dir=None, token=None, min_free_mb=None,
             except (OSError, ValueError) as e:
                 results.append({"name": name, "ok": False, "error": str(e) or "Write failed"})
             finally:
-                if os.path.exists(part):
+                if part and os.path.exists(part):
                     try:
                         os.remove(part)
                     except OSError:
