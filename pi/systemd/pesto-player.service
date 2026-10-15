@@ -1,0 +1,16 @@
+[Unit]
+Description=Pesto Player (framebuffer launcher)
+After=ft6336-touch.service
+Wants=ft6336-touch.service
+
+[Service]
+User=pesto
+SupplementaryGroups=video input audio render
+ExecStartPre=+-/bin/sh -c 'echo 0 > /sys/class/vtconsole/vtcon1/bind'
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/python3 /home/pesto/pesto-player/pi/pesto_fb_launch.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

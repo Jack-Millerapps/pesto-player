@@ -1,0 +1,12 @@
+[Unit]
+Description=FT6336 polled touch input
+After=multi-user.target
+
+[Service]
+ExecStartPre=/usr/bin/pinctrl set 17 op dh
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/bin/python3 /usr/local/bin/ft6336_touch.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
