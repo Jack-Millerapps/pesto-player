@@ -14,6 +14,7 @@ class PlaylistsScreen(BrowseScreen):
     def __init__(self, screen_manager, audio_player, music_library, playlist_store=None):
         super().__init__(screen_manager, audio_player, music_library, playlist_store)
         self.names = []
+        self._counts = {}
         self.btn_new = Button((theme.SCREEN_W - 70 - 6, theme.CONTENT_TOP, 70, HEADER_H),
                               "New", self.create_playlist, style="secondary")
         self.header_buttons.append(self.btn_new)
@@ -25,6 +26,12 @@ class PlaylistsScreen(BrowseScreen):
 
     def reload(self):
         self.names = list(self.store.list_names())
+        self._counts = {}
+        for n in self.names:
+            try:
+                self._counts[n] = len(self.store.load(n))
+            except Exception:
+                self._counts[n] = 0
         self.list.set_items(self.names)
         self.dirty = True
 
@@ -47,10 +54,7 @@ class PlaylistsScreen(BrowseScreen):
         x = rect.x + theme.PAD
         n = text_cache.ellipsize(item, theme.FS_BODY, rect.w - 2 * theme.PAD)
         surface.blit(text_cache.render(n, theme.FS_BODY, theme.TEXT), (x, rect.y + 9))
-        try:
-            count = len(self.store.load(item))
-        except Exception:
-            count = 0
+        count = self._counts.get(item, 0)
         surface.blit(text_cache.render(plural(count, "song"), theme.FS_SMALL, theme.TEXT_DIM),
                      (x, rect.y + 31))
         pygame.draw.line(surface, theme.BORDER, (x, rect.bottom - 1), (rect.right, rect.bottom - 1))

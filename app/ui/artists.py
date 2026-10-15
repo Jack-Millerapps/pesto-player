@@ -4,7 +4,7 @@ import pygame
 from ui import theme
 from ui import text_cache
 from ui.widgets import Button, ScrollList
-from ui.songs import (BrowseScreen, EmptyState, LIST_TOP, LIST_BOTTOM, HEADER_H,
+from ui.songs import (BrowseScreen, EmptyState, LIST_TOP, LIST_BOTTOM,
                       draw_track_row, play_tracks, shuffle_start_index, track_actions)
 
 

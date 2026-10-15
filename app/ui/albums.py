@@ -4,7 +4,7 @@ import pygame
 from ui import theme
 from ui import text_cache
 from ui.widgets import ScrollList
-from ui.songs import BrowseScreen, EmptyState, LIST_TOP, LIST_BOTTOM
+from ui.songs import BrowseScreen, EmptyState, LIST_TOP, LIST_BOTTOM, loader_for
 from ui.artists import TrackDetailScreen
 
 CELL_W = theme.SCREEN_W // 2
@@ -18,8 +18,8 @@ class AlbumsScreen(BrowseScreen):
     def __init__(self, screen_manager, audio_player, music_library, playlist_store=None):
         super().__init__(screen_manager, audio_player, music_library, playlist_store)
         self.albums = []
-        self._art = {}
         self._last_x = 0
+        self.loader = loader_for(music_library)
         self.list = ScrollList((0, LIST_TOP, theme.SCREEN_W, LIST_BOTTOM - LIST_TOP),
                                CELL_H, self._draw_row, self._on_tap)
         self.lists.append(self.list)
@@ -32,7 +32,6 @@ class AlbumsScreen(BrowseScreen):
         rows = [self.albums[i:i + 2] for i in range(0, len(self.albums), 2)]
         self.list.set_items(rows)
         self.widgets = [self.list] if self.albums else [self.empty]
-        self._art.clear()
         self.dirty = True
 
     def on_enter(self, **kw):
@@ -41,18 +40,12 @@ class AlbumsScreen(BrowseScreen):
 
     def _art_for(self, album):
         key = (album.get("title"), album.get("artist"))
-        if key not in self._art:
-            surf = None
-            try:
-                tracks = self.music_library.tracks_for_album(*key)
-                if tracks:
-                    surf = self.music_library.get_art(tracks[0], ART)
-            except Exception:
-                surf = None
-            if len(self._art) > 24:
-                self._art.pop(next(iter(self._art)))
-            self._art[key] = surf
-        return self._art[key]
+        lib = self.music_library
+
+        def load():
+            tracks = lib.tracks_for_album(*key)
+            return lib.get_art(tracks[0], ART) if tracks else None
+        return self.loader.request(("album",) + key + (ART,), load)
 
     def _draw_row(self, surface, rect, item, index, state):
         for c, album in enumerate(item):

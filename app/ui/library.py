@@ -45,8 +45,15 @@ class LibraryScreen(BrowseScreen):
         return ""
 
     def on_enter(self, **kw):
-        self._counts = {k: self._subtitle(k) for k, _ in ROWS}
+        self._refresh_counts()
         super().on_enter(**kw)
+
+    def _refresh_counts(self):
+        self._counts = {k: self._subtitle(k) for k, _ in ROWS}
+
+    def on_scan_done(self):
+        self._refresh_counts()
+        self.dirty = True
 
     _counts = {}
 
@@ -80,5 +87,5 @@ def register_library_screens(sm, audio_player, music_library, playlist_store=Non
                       ("search", SearchScreen), ("artist_detail", ArtistDetailScreen),
                       ("album_detail", AlbumDetailScreen),
                       ("playlist_detail", PlaylistDetailScreen)):
-        sm.register(name, cls(*args))
+        sm.register(name, cls(*args), tab="library")
     return hub

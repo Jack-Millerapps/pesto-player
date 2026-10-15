@@ -4,7 +4,10 @@ Shared here (not in a separate module) because this task owns only the
 browse files: BrowseScreen base, track_row drawing, play helpers, the
 long-press action sheet and the empty-state widget.
 """
+import collections
+import queue as _queue
 import random
+import threading
 
 import pygame
 
@@ -43,8 +46,7 @@ def play_tracks(audio_player, tracks, index=0, shuffle=None):
         return
     if shuffle is not None:
         audio_player.shuffle = shuffle
-    audio_player.set_queue(list(tracks), index)
-    audio_player.play()
+    audio_player.set_queue(list(tracks), index)   # set_queue starts playback itself
 
 
 def shuffle_start_index(tracks):
@@ -125,26 +127,83 @@ def draw_track_row(surface, rect, track, current, thumb=None):
                      (rect.right, rect.bottom - 1))
 
 
+class ArtLoader:
+    """Worker-thread art loader with a small shared LRU. draw() never decodes.
+
+    request(key, fn) returns the cached Surface (or None while loading / if
+    there is no art); fn runs on the worker. `version` bumps when something
+    finishes so screens know to redraw.
+    """
+    MAX = 96
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._cache = collections.OrderedDict()
+        self._pending = set()
+        self._jobs = _queue.Queue()
+        self._thread = None
+        self.version = 0
+
+    def request(self, key, fn):
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
+            if key not in self._pending:
+                self._pending.add(key)
+                self._jobs.put((key, fn))
+                if self._thread is None:
+                    self._thread = threading.Thread(target=self._work, daemon=True)
+                    self._thread.start()
+        return None
+
+    def _work(self):
+        while True:
+            key, fn = self._jobs.get()
+            try:
+                surf = fn()
+            except Exception:
+                surf = None
+            with self._lock:
+                self._pending.discard(key)
+                self._cache[key] = surf
+                while len(self._cache) > self.MAX:
+                    self._cache.popitem(last=False)
+                self.version += 1
+
+    def wait_idle(self, timeout=2.0):
+        """Test helper: block until no jobs are pending."""
+        import time
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            with self._lock:
+                if not self._pending:
+                    return True
+            time.sleep(0.005)
+        return False
+
+
+_loaders = {}
+
+
+def loader_for(library):
+    ld = _loaders.get(id(library))
+    if ld is None:
+        ld = _loaders[id(library)] = ArtLoader()
+    return ld
+
+
 class ThumbCache:
-    """Small per-screen cache so draw_row never hits the library per frame."""
-    MAX = 64
+    """Per-library thumbnail access through the shared async loader."""
 
     def __init__(self, library):
         self.library = library
-        self._d = {}
+        self.loader = loader_for(library)
 
     def get(self, track):
-        key = track.get("id")
-        if key in self._d:
-            return self._d[key]
-        try:
-            s = self.library.get_art(track, THUMB)
-        except Exception:
-            s = None
-        if len(self._d) >= self.MAX:
-            self._d.pop(next(iter(self._d)))
-        self._d[key] = s
-        return s
+        lib = self.library
+        return self.loader.request((track.get("id"), THUMB),
+                                   lambda: lib.get_art(track, THUMB))
 
 
 class EmptyState:
@@ -180,6 +239,8 @@ class BrowseScreen(Screen):
         self.thumbs = ThumbCache(music_library)
         self.current_id = None
         self._poll = 0.0
+        self._was_scanning = False
+        self._art_seen = self.thumbs.loader.version
         self.header_buttons = []
         self.back_button = None
         if self.has_back:
@@ -219,6 +280,16 @@ class BrowseScreen(Screen):
         if self._poll >= 0.25:
             self._poll = 0.0
             self._poll_current()
+        try:
+            scanning = bool(self.music_library.is_scanning())
+        except Exception:
+            scanning = False
+        if self._was_scanning and not scanning:
+            self.on_scan_done()
+        self._was_scanning = scanning
+        if self.thumbs.loader.version != self._art_seen:
+            self._art_seen = self.thumbs.loader.version
+            self.dirty = True
         for lst in self.lists:
             lst.update(dt)
             if lst.dirty:
@@ -236,6 +307,11 @@ class BrowseScreen(Screen):
                     break
         self.dirty = True
         return handled or True
+
+    def on_scan_done(self):
+        if hasattr(self, "reload"):
+            self.reload()
+        self.dirty = True
 
     def on_enter(self, **kw):
         self._poll_current()

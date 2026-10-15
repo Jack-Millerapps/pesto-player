@@ -19,6 +19,7 @@ MAX_ALL = 5   # per section in the "All" chip
 
 class SearchScreen(BrowseScreen):
     title = "Search"
+    has_mini_player = False   # keyboard needs the full content area
 
     def __init__(self, screen_manager, audio_player, music_library, playlist_store=None):
         super().__init__(screen_manager, audio_player, music_library, playlist_store)
@@ -43,7 +44,7 @@ class SearchScreen(BrowseScreen):
     # --- layout
     def _list_rect(self):
         top = CHIPS_Y + CHIP_H
-        bottom = KB_Y if self.keyboard_open else theme.CONTENT_BOTTOM_MINI
+        bottom = KB_Y if self.keyboard_open else theme.CONTENT_BOTTOM
         return pygame.Rect(0, top, theme.SCREEN_W, bottom - top)
 
     def _sync_widgets(self):

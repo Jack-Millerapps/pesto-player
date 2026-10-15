@@ -34,8 +34,10 @@ class FakePlayer:
         self.queue, self.start, self.played = [], None, 0
         self.log, self.track = [], None
 
-    def set_queue(self, tracks, start_index=0): self.queue, self.start = list(tracks), start_index
-    def play(self): self.played += 1
+    def set_queue(self, tracks, start_index=0):
+        self.queue, self.start = list(tracks), start_index
+        self.played += 1          # real set_queue starts playback
+    def play(self): self.extra_plays = getattr(self, "extra_plays", 0) + 1
     def enqueue(self, t): self.log.append(("enqueue", t["id"]))
     def play_next(self, t): self.log.append(("next", t["id"]))
     def get_state(self): return {"track": self.track}
@@ -315,7 +317,7 @@ def test_search_keyboard_close_resizes_list(env):
     s = make(SearchScreen, env)
     h = s.list.rect.h
     s.close_keyboard()
-    assert s.list.rect.h > h and s.list.rect.bottom <= theme.CONTENT_BOTTOM_MINI
+    assert s.list.rect.h > h and s.list.rect.bottom <= theme.CONTENT_BOTTOM
 
 
 # -------------------------------------------------------------------- hub
@@ -343,6 +345,99 @@ def test_register_helper(env):
     for n in ("songs", "artists", "albums", "playlists", "search",
               "artist_detail", "album_detail", "playlist_detail"):
         assert n in sm.registered
+
+
+def test_play_tracks_does_not_call_play_twice(env):
+    sm, pl, lib, st = env
+    s = make(SongsScreen, env)
+    tap(s, row_pos(0))
+    assert pl.played == 1 and getattr(pl, 'extra_plays', 0) == 0
+
+
+def test_art_loaded_on_worker_not_in_draw(env):
+    import threading
+    sm, pl, lib, st = env
+    calls = []
+
+    def get_art(track, size):
+        calls.append(threading.current_thread())
+        return pygame.Surface((size, size))
+    lib.get_art = get_art
+    s = make(SongsScreen, env)
+    s.draw(surface())
+    assert s.thumbs.loader.wait_idle()
+    assert calls and all(t is not threading.main_thread() for t in calls)
+    s.update(0.01)
+    assert s.dirty
+
+
+def test_scan_finish_refreshes_lists(env):
+    sm, pl, lib, st = env
+    all_tracks = lib.tracks
+    lib.tracks = []
+    state = {"scan": True}
+    lib.is_scanning = lambda: state["scan"]
+    s = make(SongsScreen, env)
+    h = make(LibraryScreen, env)
+    s.update(0.01); h.update(0.01)
+    lib.tracks = all_tracks
+    state["scan"] = False
+    s.update(0.01); h.update(0.01)
+    assert len(s.tracks) == len(all_tracks)
+    assert h._counts["songs"] == f"{len(all_tracks)} songs"
+
+
+def test_playlist_counts_cached_not_loaded_per_draw(env):
+    sm, pl, lib, st = env
+    st.save("P", lib.tracks[:2])
+    s = make(PlaylistsScreen, env)
+    loads = []
+    orig = st.load
+    st.load = lambda n: loads.append(n) or orig(n)
+    s.draw(surface()); s.draw(surface())
+    assert loads == []
+
+
+def test_real_screen_manager_navigation(env):
+    from ui.screen_manager import ScreenManager
+    sm = ScreenManager(pygame.Surface((theme.SCREEN_W, theme.SCREEN_H)))
+    _, pl, lib, st = env
+    register_library_screens(sm, pl, lib, st)
+    for n in ("songs", "artists", "albums", "playlists", "search"):
+        sm.show("library")
+        sm.push(n)
+        assert sm.current_name() == n, n
+        assert sm.pop() and sm.current_name() == "library"
+    sm.show("library")
+    sm.push("artists")
+    sm.push("artist_detail", artist_name="Ann")
+    assert sm.current_name() == "artist_detail"
+    assert sm.pop() and sm.current_name() == "artists"
+    sm.show("library"); sm.push("albums")
+    sm.push("album_detail", title="First", artist="Ann")
+    assert sm.current_name() == "album_detail"
+    assert sm.pop() and sm.current_name() == "albums"
+    sm.show("library"); sm.push("playlists")
+    st.save("P", [])
+    sm.push("playlist_detail", playlist_name="P")
+    assert sm.current_name() == "playlist_detail"
+    assert sm.pop() and sm.current_name() == "playlists"
+
+
+def test_search_keyboard_fully_visible_and_touchable(env):
+    from ui.screen_manager import ScreenManager
+    sm = ScreenManager(pygame.Surface((theme.SCREEN_W, theme.SCREEN_H)))
+    _, pl, lib, st = env
+    register_library_screens(sm, pl, lib, st)
+    sm.show("library"); sm.push("search")
+    s = sm.current_screen()
+    assert s.has_mini_player is False
+    content = sm.content_rect()
+    keys = s.keyboard.key_rects()
+    assert keys and all(content.contains(r) for _, r in keys)
+    space = dict(keys)[" "]
+    sm.handle_touch(space.center, "down"); sm.handle_touch(space.center, "up")
+    assert sm.current_name() == "search" and s.query == " "
 
 
 def test_back_button_pops(env):
