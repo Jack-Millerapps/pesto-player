@@ -324,3 +324,62 @@ def test_toast_does_not_overlap_volume_hud():
     hud = VolumeHUD()
     assert not sm.toast_rect().colliderect(hud.rect)
     assert sm.toast_rect().bottom <= theme.TAB_Y
+
+
+# ---- sub-rect dirty API ----
+def test_sub_rect_redraw_returns_only_that_rect():
+    sm, scr, surf = make()
+    sm.show("library")
+    sm.draw()
+    assert sm.supports_dirty_rects is True
+    s = scr["library"]
+    d = s.draws
+    r = pygame.Rect(20, 100, 100, 24)
+    s.dirty_rects.append(r)
+    rects = sm.draw()
+    assert rects == [r]
+    assert s.draws == d + 1 and s.dirty_rects == [] and s.dirty is False
+    assert sm.draw() == []
+
+
+def test_sub_rect_clipped_to_content_and_draw_clip_set():
+    sm, scr, surf = make()
+    clips = []
+
+    class S(Rec):
+        def draw(self, surface):
+            clips.append(surface.get_clip())
+
+    s = S(sm)
+    sm.register("c", s, tab="queue")
+    sm.show("c")
+    sm.draw()
+    clips.clear()
+    s.dirty_rects.append(pygame.Rect(0, 400, 320, 200))   # runs past content bottom
+    rects = sm.draw()
+    assert rects == [pygame.Rect(0, 400, 320, theme.TAB_Y - 400)]
+    assert clips == [rects[0]]
+
+
+def test_full_dirty_still_wins_over_sub_rects():
+    sm, scr, surf = make()
+    sm.show("library")
+    sm.draw()
+    s = scr["library"]
+    s.dirty = True
+    s.dirty_rects.append(pygame.Rect(0, 100, 10, 10))
+    rects = sm.draw()
+    assert rects == [sm.content_rect()]
+    assert s.dirty_rects == []
+
+
+def test_repeated_sub_rect_redraws_do_not_hold_active_fps():
+    sm, scr, surf = make()
+    sm.show("library")
+    sm.draw()
+    s = scr["library"]
+    for _ in range(60):
+        sm.update(1 / 30.0)
+        s.dirty_rects.append(pygame.Rect(20, 100, 100, 24))
+        assert sm.draw() == [pygame.Rect(20, 100, 100, 24)]
+    assert sm.target_fps() == theme.FPS_IDLE

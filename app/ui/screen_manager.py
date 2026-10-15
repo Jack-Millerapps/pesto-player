@@ -35,6 +35,9 @@ class Screen:
     def __init__(self, screen_manager=None):
         self.screen_manager = screen_manager
         self.dirty = True
+        # Optional partial redraw: append absolute-coordinate pygame.Rects here (with
+        # dirty False) and the manager repaints only those, then empties the list.
+        self.dirty_rects = []
 
     def on_enter(self, **kw):
         pass
@@ -94,6 +97,8 @@ class StatusBar:
 
 
 class ScreenManager:
+    supports_dirty_rects = True
+
     def __init__(self, display_surface):
         self.display_surface = display_surface
         self.status_bar = StatusBar()
@@ -293,12 +298,14 @@ class ScreenManager:
         content = self.content_rect()
         status_d = self.status_bar.dirty
         content_d = scr.dirty
+        sub = list(getattr(scr, "dirty_rects", None) or [])
         mini_d = mini_vis and getattr(self.mini_player, "dirty", True)
         tab_d = self.tab_bar.dirty
         any_dirty = status_d or content_d or mini_d or tab_d
+        any_or_sub = any_dirty or bool(sub)
         overlay_changed = self._toast_dirty or self._sheet_dirty or overlay_dirty
         full = self._full or (over and (any_dirty or overlay_changed)) or (not over and overlay_changed)
-        if not (full or any_dirty):
+        if not (full or any_or_sub):
             return []
         rects = []
         if full or status_d:
@@ -312,6 +319,19 @@ class ScreenManager:
             surf.set_clip(prev)
             scr.dirty = False
             rects.append(content)
+        elif sub:
+            prev = surf.get_clip()
+            for r in sub:
+                r = pygame.Rect(r).clip(content)
+                if r.w <= 0 or r.h <= 0:
+                    continue
+                surf.set_clip(r)
+                pygame.draw.rect(surf, theme.BG, r)
+                scr.draw(surf)
+                rects.append(r)
+            surf.set_clip(prev)
+        if sub and hasattr(scr, "dirty_rects"):
+            del scr.dirty_rects[:]
         if mini_vis and (full or mini_d):
             self.mini_player.draw(surf)
             rects.append(pygame.Rect(0, theme.MINI_Y, theme.SCREEN_W, theme.MINI_H))
@@ -336,9 +356,10 @@ class ScreenManager:
         self._overlay_was_active = overlay_active
         # Idle is about input/animation, not periodic redraws: only back-to-back
         # redraws (gap < ANIM_GAP s) count as animation and keep the fps up.
-        if rects and self._since_draw < ANIM_GAP:
-            self._idle = 0.0
-        if rects:
+        # Sub-rect-only redraws are cheap and do not count as animation.
+        if rects and (any_dirty or full):
+            if self._since_draw < ANIM_GAP:
+                self._idle = 0.0
             self._since_draw = 0.0
         return rects
 
