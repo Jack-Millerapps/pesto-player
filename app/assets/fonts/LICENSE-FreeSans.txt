@@ -1,0 +1,9 @@
+FreeSansBold.ttf is the font bundled with pygame (GNU FreeFont, FreeSans Bold).
+FreeFont is licensed under the GNU General Public License v3 (or later) with the
+font exception: documents/programs that merely embed or use the font are not
+covered by the GPL. Source: https://www.gnu.org/software/freefont/
+
+Fallback note: the plan asked for DejaVuSans.ttf, which was not available
+offline on the build machine. To switch, drop DejaVuSans.ttf (Bitstream Vera /
+DejaVu license, free to bundle) into this folder; text_cache.py prefers
+DejaVuSans.ttf when present and falls back to FreeSansBold.ttf.
