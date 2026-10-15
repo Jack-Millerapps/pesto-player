@@ -232,3 +232,22 @@ def test_simulated_backend_plays_and_ends():
     assert b.load("/mock/x.mp3", duration_hint=10)
     b.play(); clock[0] = 4; assert b.time_s() == 4 and b.state() == "playing"
     clock[0] = 11; assert b.state() == "ended"
+
+
+def test_enqueue_after_queue_ended_plays_new_track(env):
+    p, be, _ = env
+    p.set_queue([tr(0), tr(1)], start_index=1)
+    be.st = "ended"; p.update()
+    assert not p.get_state()["playing"]
+    p.enqueue(tr(7))
+    p.play()
+    assert p.get_state()["track"]["path"] == "/m/7.mp3" and p.get_state()["playing"]
+
+
+def test_play_next_after_queue_ended_plays_it(env):
+    p, be, _ = env
+    p.set_queue([tr(0)])
+    be.st = "ended"; p.update()
+    p.play_next(tr(5))
+    p.play()
+    assert p.get_state()["track"]["path"] == "/m/5.mp3"

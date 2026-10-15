@@ -175,6 +175,7 @@ class AudioPlayer:
         self._pos = -1        # position within _order; -1 = nothing loaded
         self._playing = False
         self._loaded = False
+        self._ended = False   # queue ran out; next play() should pick up newly added tracks
         self._shuffle = False
         self._repeat = "off"
         self._volume = config.VOLUME_DEFAULT
@@ -278,6 +279,9 @@ class AudioPlayer:
         self._queue.append(track)
         if self._cur_index >= 0 or not self._order:
             self._order.append(len(self._queue) - 1)
+        if self._ended and not self._playing:
+            self._pos = len(self._order) - 1   # play() now starts the new track
+            self._ended = False
         self._dirty = True
 
     def play_next(self, track):
@@ -290,6 +294,9 @@ class AudioPlayer:
         self._queue.insert(cur + 1, track)
         self._order = [i + 1 if i > cur else i for i in self._order]
         self._order.insert(self._pos + 1, cur + 1)
+        if self._ended and not self._playing:
+            self._pos += 1
+            self._ended = False
         self._dirty = True
 
     def remove_from_queue(self, index):
@@ -329,7 +336,6 @@ class AudioPlayer:
         n = len(self._queue)
         if not (0 <= src < n and 0 <= dst < n) or src == dst:
             return
-        cur = self._cur_index
         item = self._queue.pop(src)
         self._queue.insert(dst, item)
 
@@ -367,6 +373,7 @@ class AudioPlayer:
             self._report(f"Can't play: {track.get('title')}")
             return self._skip_failed(direction, failures + 1)
         self._loaded = True
+        self._ended = False
         self._set_playing(True)
         self._cache = {"position": 0.0, "duration": track.get("duration") or 0.0}
         self._last_poll = 0.0
@@ -459,6 +466,7 @@ class AudioPlayer:
             self._start_current(direction=1)
         else:
             self._stop_backend()  # end of queue: stay on last track, stopped
+            self._ended = True
 
     def _rebuild_order_wrap(self):
         n = len(self._queue)

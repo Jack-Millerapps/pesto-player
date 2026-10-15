@@ -66,3 +66,40 @@ def test_disk_info_walks_up_to_existing_parent(tmp_path):
     free, total = system.disk_info(str(tmp_path / "a" / "b"))
     assert free and total and free <= total
     assert system.human_bytes(1536) == "1.5 KB" and system.human_bytes(None) == "?"
+
+
+# ------------------------------------------------------------------ buttons
+def _buttons(monkeypatch):
+    from hardware.buttons import ButtonHandler
+    monkeypatch.setattr(config, "TEST_MODE", True)
+    now = [100.0]
+    b = ButtonHandler()
+    b._clock = lambda: now[0]
+    seen = []
+    b.set_callback("power_short", lambda: seen.append("short"))
+    b.set_callback("power_long", lambda: seen.append("long"))
+    return b, now, seen
+
+
+def test_short_press_never_turns_into_long(monkeypatch):
+    b, now, seen = _buttons(monkeypatch)
+    b._on_power_pressed()
+    now[0] += 0.2
+    b._on_power_released()
+    for _ in range(10):
+        now[0] += 1.0
+        b.update()
+    assert seen == ["short"]
+
+
+def test_long_press_fires_exactly_once(monkeypatch):
+    b, now, seen = _buttons(monkeypatch)
+    b._on_power_pressed()
+    for _ in range(10):
+        now[0] += 0.5
+        b.update()
+    b._on_power_released()
+    for _ in range(5):
+        now[0] += 1.0
+        b.update()
+    assert seen == ["long"]

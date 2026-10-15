@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import threading
 from collections import OrderedDict
 
@@ -31,7 +32,8 @@ UNKNOWN_ALBUM = "Unknown Album"
 SIDECAR_STEMS = ("cover", "folder", "front", "album")
 SIDECAR_EXTS = (".jpg", ".jpeg", ".png")
 INDEX_VERSION = 1
-ART_CACHE_SIZE = 24
+ART_CACHE_BYTES = 8 * 1024 * 1024   # bound by pixel memory, not entry count (sizes vary 40-200 px)
+ART_CACHE_MAX_ENTRIES = 1024         # also bounds cached "no art" (None) results
 
 
 def track_id(path):
@@ -39,10 +41,26 @@ def track_id(path):
     return hashlib.sha1(path.encode("utf-8", "surrogateescape")).hexdigest()[:16]
 
 
+_CTRL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def clean_text(value):
+    """Make a tag/filename safe to render: undo surrogateescape (os.walk gives
+    'bad\udcffname' for non-UTF-8 filenames), drop NUL/control characters."""
+    if value is None:
+        return ""
+    s = str(value)
+    try:
+        s.encode("utf-8")
+    except UnicodeEncodeError:
+        s = s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    return _CTRL.sub("", s).strip()
+
+
 def _first(v):
     if isinstance(v, (list, tuple)):
         v = v[0] if v else None
-    return str(v).strip() if v not in (None, "") else None
+    return (clean_text(v) or None) if v not in (None, "") else None
 
 
 def _track_no(v):
@@ -68,7 +86,8 @@ class MusicLibrary:
         self._by_artist = {}
         self._by_album = {}
         self._search_idx = []
-        self._art_cache = OrderedDict()
+        self._art_cache = OrderedDict()   # (track id, size) -> Surface | None
+        self._art_bytes = 0
         self._art_lock = threading.Lock()
         self._art_files = {}
 
@@ -164,9 +183,9 @@ class MusicLibrary:
         except Exception as e:
             print(f"Library: tag error {path}: {e}")
             tags = {}
-        stem = os.path.splitext(os.path.basename(path))[0]
-        title = tags.get("title")
-        artist = tags.get("artist")
+        stem = clean_text(os.path.splitext(os.path.basename(path))[0]) or "Unknown"
+        title = clean_text(tags.get("title"))
+        artist = clean_text(tags.get("artist"))
         if not title:
             if " - " in stem and not artist:
                 artist, title = [p.strip() for p in stem.split(" - ", 1)]
@@ -175,7 +194,7 @@ class MusicLibrary:
         return {
             "title": title or stem,
             "artist": artist or UNKNOWN_ARTIST,
-            "album": tags.get("album") or UNKNOWN_ALBUM,
+            "album": clean_text(tags.get("album")) or UNKNOWN_ALBUM,
             "duration": tags.get("duration"),
             "track_no": tags.get("track_no"),
         }
@@ -199,8 +218,10 @@ class MusicLibrary:
     @staticmethod
     def _make_track(path, meta):
         return {
-            "id": track_id(path), "path": path, "title": meta["title"],
-            "artist": meta["artist"], "album": meta["album"],
+            "id": track_id(path), "path": path,
+            "title": clean_text(meta["title"]) or "Unknown",
+            "artist": clean_text(meta["artist"]) or UNKNOWN_ARTIST,
+            "album": clean_text(meta["album"]) or UNKNOWN_ALBUM,
             "duration": meta.get("duration"), "track_no": meta.get("track_no"),
         }
 
@@ -256,6 +277,7 @@ class MusicLibrary:
             self._by_artist, self._by_album, self._search_idx = by_artist, by_album, idx
         with self._art_lock:
             self._art_cache.clear()
+            self._art_bytes = 0
 
     # --------------------------------------------------------------- queries
     def get_tracks(self):
@@ -305,10 +327,18 @@ class MusicLibrary:
                 return self._art_cache[key]
         surf = self._load_art(track, size)
         with self._art_lock:
-            self._art_cache[key] = surf
-            while len(self._art_cache) > ART_CACHE_SIZE:
-                self._art_cache.popitem(last=False)
+            if key not in self._art_cache:
+                self._art_cache[key] = surf
+                self._art_bytes += self._surf_bytes(surf)
+            while (self._art_bytes > ART_CACHE_BYTES
+                   or len(self._art_cache) > ART_CACHE_MAX_ENTRIES) and self._art_cache:
+                _k, old = self._art_cache.popitem(last=False)
+                self._art_bytes -= self._surf_bytes(old)
         return surf
+
+    @staticmethod
+    def _surf_bytes(surf):
+        return surf.get_width() * surf.get_height() * 4 if surf is not None else 0
 
     def _load_art(self, track, size):
         try:

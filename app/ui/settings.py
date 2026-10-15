@@ -7,8 +7,6 @@ drag must never change volume, so there is no drag slider in a scrolling list).
 Anything that needs the whole app (shutdown, restart, exit, brightness) goes
 through `hooks`, a dict of callables supplied by main.py.
 """
-import os
-
 import pygame
 
 import config

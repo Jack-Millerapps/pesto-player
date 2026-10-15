@@ -5,8 +5,6 @@ Handles Bluetooth pairing and audio output switching
 Phase 1: Placeholder - will be implemented in Phase 2
 """
 
-import config
-
 
 class BluetoothManager:
     """Bluetooth manager (placeholder for Phase 2)"""

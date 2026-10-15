@@ -227,3 +227,65 @@ def test_playlist_corrupt_file_ignored(tmp_path):
     (d / "bad.json").write_text("{nope")
     s = PlaylistStore(str(d))
     assert s.list_names() == [] and s.load("bad") == []
+
+
+# ------------------------------------------------------- text sanitising
+def test_clean_text_handles_surrogates_and_nul():
+    from player.library import clean_text
+    s = clean_text("bad\udcffname\x00x\n")
+    assert "\x00" not in s and "\n" not in s
+    s.encode("utf-8")  # must be encodable: no lone surrogates left
+    assert clean_text(None) == ""
+
+
+def test_scan_sanitises_filename_and_tags(tmp_path, monkeypatch):
+    root = tmp_path / "M"
+    root.mkdir()
+    bad = os.fsdecode(b"Ann - bad\xffname.mp3")   # surrogate-escaped on POSIX
+    try:
+        touch(os.path.join(str(root), bad))
+    except OSError:
+        pytest.skip("filesystem rejects non-UTF-8 names")
+    touch(str(root / "tagged.mp3"))
+    orig = libmod.MusicLibrary._read_tags
+
+    def fake(self, path):
+        if path.endswith("tagged.mp3"):
+            return {"title": "T\x00itle\udcff", "artist": "A\x00", "album": "Al\x01b"}
+        return orig(self, path)
+
+    monkeypatch.setattr(libmod.MusicLibrary, "_read_tags", fake)
+    lib = MusicLibrary(str(root), index_path=str(tmp_path / "i.json"))
+    scan_sync(lib)
+    assert len(lib.get_tracks()) == 2
+    for t in lib.get_tracks():
+        for k in ("title", "artist", "album"):
+            t[k].encode("utf-8")
+            assert "\x00" not in t[k] and "\x01" not in t[k]
+    assert lib.search("zzz")["songs"] == []
+
+
+def test_art_cache_is_bounded_by_bytes_and_keeps_sizes_separate(tagged, monkeypatch):
+    import pygame
+    monkeypatch.setattr(libmod, "ART_CACHE_BYTES", 3 * 64 * 64 * 4)
+    tagged._load_art = lambda track, size: pygame.Surface((size, size))
+    t = tagged.get_tracks()
+    a40 = tagged.get_art(t[0], 40)
+    a64 = tagged.get_art(t[0], 64)
+    assert a40.get_size() == (40, 40) and a64.get_size() == (64, 64)
+    for x in t:
+        tagged.get_art(x, 64)
+    assert tagged._art_bytes <= 3 * 64 * 64 * 4
+
+
+def test_surrogate_path_is_sanitised_without_touching_filesystem(tmp_path):
+    lib = MusicLibrary(str(tmp_path), index_path=str(tmp_path / "i.json"))
+    path = str(tmp_path / "Ann - bad\udcffname\x00.mp3")
+    meta = lib._meta_for(path)
+    tr = lib._make_track(path, meta)
+    for k in ("title", "artist", "album"):
+        tr[k].encode("utf-8")
+        assert "\x00" not in tr[k]
+    assert tr["id"] == track_id(path)
+    lib._save_index({path: {"key": [1, 2], "meta": meta}})   # must not raise
+    assert len(lib._load_index()) == 1

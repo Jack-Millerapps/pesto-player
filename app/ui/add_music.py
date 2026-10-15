@@ -15,7 +15,7 @@ import config
 from hardware.system import NetInfo, disk_info, human_bytes
 from ui import text_cache, theme
 from ui.screen_manager import Screen
-from ui.widgets import Button, draw_icon
+from ui.widgets import Button
 
 try:
     import qrcode

@@ -47,6 +47,7 @@ class ButtonHandler:
         # Track power button press time for long press detection
         self.power_press_start = 0
         self.power_long_press_triggered = False
+        self._clock = time.time        # injectable for tests
 
         if not config.TEST_MODE and GPIO_AVAILABLE:
             self._init_gpio()
@@ -96,15 +97,17 @@ class ButtonHandler:
 
     def _on_power_pressed(self):
         """Power button pressed"""
-        self.power_press_start = time.time()
+        self.power_press_start = self._clock()
         self.power_long_press_triggered = False
 
     def _on_power_released(self):
         """Power button released"""
-        if self.power_long_press_triggered:
+        started = self.power_press_start
+        self.power_press_start = 0       # released: update() must not see a held button
+        if self.power_long_press_triggered or started <= 0:
             return
 
-        press_duration = time.time() - self.power_press_start
+        press_duration = self._clock() - started
 
         if press_duration >= config.GPIO_LONG_PRESS_TIME:
             # Long press
@@ -130,15 +133,13 @@ class ButtonHandler:
         Update button state (for long press detection in GPIO mode)
         Call this regularly from main loop
         """
-        if not config.TEST_MODE and GPIO_AVAILABLE:
-            # Check for long press on power button
-            if (self.power_press_start > 0 and
+        # Long press while still held (power_press_start is 0 when not held)
+        if (self.power_press_start > 0 and
                 not self.power_long_press_triggered and
-                time.time() - self.power_press_start >= config.GPIO_LONG_PRESS_TIME):
-
-                self.power_long_press_triggered = True
-                if self.callbacks['power_long']:
-                    self.callbacks['power_long']()
+                self._clock() - self.power_press_start >= config.GPIO_LONG_PRESS_TIME):
+            self.power_long_press_triggered = True
+            if self.callbacks['power_long']:
+                self.callbacks['power_long']()
 
     def cleanup(self):
         """Clean up GPIO resources"""

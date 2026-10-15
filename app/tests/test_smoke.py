@@ -78,3 +78,35 @@ def test_touch_while_asleep_wakes_without_pressing(app):
     _frame(app)
     assert not app.asleep
     assert app.screen_manager.current_name() == "now_playing"   # tab tap was swallowed
+
+
+def test_frame_errors_are_survived_and_toasted(app):
+    def boom(*a, **k):
+        raise OSError("disk full")
+    app.audio_player.update = boom
+    app.step(1 / 30)           # must not raise
+    app.step(1 / 30)
+    assert app.screen_manager.toast_text == "Something went wrong"
+    assert app.running
+
+
+def test_button_callbacks_only_enqueue_and_step_drains(app):
+    v = app.audio_player.get_volume()
+    app.buttons.callbacks["volume_up"]()          # as gpiozero's thread would
+    app.buttons.callbacks["power_short"]()
+    assert app.audio_player.get_volume() == v and not app.asleep   # nothing handled yet
+    assert app._events.qsize() == 2
+    app.step(1 / 30)
+    assert app.audio_player.get_volume() == v + config.VOLUME_STEP
+    assert app.asleep and app._events.qsize() == 0
+    app.buttons.callbacks["power_short"]()
+    app.step(1 / 30)
+    assert not app.asleep
+
+
+def test_battery_none_passes_through_to_status_bar(app):
+    seen = []
+    app.screen_manager.status_bar.set_battery_level = seen.append
+    app.battery.get_level = lambda: None
+    app._update_battery(force=True)
+    assert seen == [None]

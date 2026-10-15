@@ -14,8 +14,10 @@ skipped with a log line so the rest of the app still starts.
 
 import importlib
 import os
+import queue
 import sys
 import time
+import traceback
 
 import pygame
 
@@ -93,6 +95,8 @@ class PestoPlayer:
         self._scan_done = False
         self._restored = False
         self._mouse_down = False
+        self._events = queue.SimpleQueue()   # GPIO callbacks (other thread) -> main thread
+        self._last_error_toast = 0.0
 
         self.prefs = Prefs()
         self.display_power = system.DisplayPower()
@@ -127,10 +131,10 @@ class PestoPlayer:
     def _init_hardware(self):
         self.battery = MockBatteryMonitor() if config.TEST_MODE else BatteryMonitor()
         self.buttons = MockButtonHandler() if config.TEST_MODE else ButtonHandler()
-        self.buttons.set_callback("volume_up", lambda: self._volume_step(+1))
-        self.buttons.set_callback("volume_down", lambda: self._volume_step(-1))
-        self.buttons.set_callback("power_short", self._on_power_short)
-        self.buttons.set_callback("power_long", self._on_power_long)
+        # Callbacks may run on gpiozero's thread: they only enqueue; step() handles
+        # them on the main thread (pygame/ScreenManager are not thread-safe).
+        for name in ("volume_up", "volume_down", "power_short", "power_long"):
+            self.buttons.set_callback(name, lambda n=name: self._events.put(n))
 
     def _init_ui(self):
         sm = self.screen_manager = ScreenManager(self.screen)
@@ -191,8 +195,39 @@ class PestoPlayer:
         return self.exit_code
 
     def step(self, dt):
+        """One guarded frame. An error in any callback/screen is logged and toasted
+        but never kills the app (systemd would restart-loop on a bad restored item)."""
+        try:
+            self._step(dt)
+        except Exception as e:
+            traceback.print_exc()
+            now = time.time()
+            if now - self._last_error_toast > 5.0:
+                self._last_error_toast = now
+                try:
+                    self.screen_manager.toast("Something went wrong", "error")
+                except Exception:
+                    pass
+
+    def _drain_button_events(self):
+        handlers = {"volume_up": lambda: self._volume_step(+1),
+                    "volume_down": lambda: self._volume_step(-1),
+                    "power_short": self._on_power_short,
+                    "power_long": self._on_power_long}
+        while True:
+            try:
+                name = self._events.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                handlers[name]()
+            except Exception:
+                traceback.print_exc()
+
+    def _step(self, dt):
         """One frame: events, updates, draw. Separate from run() so tests can drive it."""
         self._handle_events()
+        self._drain_button_events()
         self.audio_player.update()
         self.buttons.update()
         if self._scan_done:
@@ -285,9 +320,9 @@ class PestoPlayer:
         self._battery_t = 0.0
         self.battery.update()
         lvl = self.battery.get_level()
+        self.screen_manager.status_bar.set_battery_level(lvl)   # None hides the percentage
         if lvl is None:
             return
-        self.screen_manager.status_bar.set_battery_level(lvl)
         if self.battery.is_critical():
             self._critical_count += 1
             if self._critical_count >= 3 and not config.TEST_MODE:

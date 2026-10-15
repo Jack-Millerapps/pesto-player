@@ -4,8 +4,6 @@ Quick test to verify all imports work correctly
 Run this before starting the main app
 """
 
-import sys
-
 def test_import(module_name, package=None):
     """Test if a module can be imported"""
     try:
