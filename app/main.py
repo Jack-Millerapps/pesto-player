@@ -1,362 +1,379 @@
 #!/usr/bin/env python3
 """
-Pesto Player - Main Entry Point
-A touchscreen music player for Raspberry Pi Zero 2 W
+Pesto Player - main entry point (local music, 320x480 portrait, Pi Zero 2 W).
 
-Phase 1 Features:
-- Touch-based UI (320x480 portrait mode)
-- Local MP3/FLAC playback
-- Library browsing
-- Playback controls
-- Volume control
-- Settings screen
+Mouse = touch in TEST_MODE; Up/Down = volume; ESC = power button (sleep/wake);
+Q = quit. TEST_MODE is auto-detected (see config.py); set PESTO_TEST=0/1 to force.
 
-Testing Mode:
-- Mouse = Touch input
-- Arrow keys = Volume control
-- ESC = Power button
+Exit codes: 0 = clean exit or shutdown (systemd does not restart), 3 = restart
+requested from Settings (pesto-player.service has RestartForceExitStatus=3).
 
-Author: School Project
-Version: 1.0.0 - Phase 1
+Screens from the UI modules are imported defensively: a missing/broken module is
+skipped with a log line so the rest of the app still starts.
 """
 
-import pygame
-import sys
+import importlib
 import os
+import sys
+import time
+
+import pygame
+
 import config
-
-# Import our modules
-from ui.screen_manager import ScreenManager, StatusBar
-from ui.now_playing import NowPlayingScreen
-from ui.library import LibraryScreen
-from ui.settings import SettingsScreen
-
-# Import player modules
-from player.audio import AudioPlayer, MockAudioPlayer
-from player.library import MusicLibrary, MockMusicLibrary
-
-# Import hardware modules
+from hardware import system
 from hardware.battery import BatteryMonitor, MockBatteryMonitor
 from hardware.buttons import ButtonHandler, MockButtonHandler
+from player.audio import create_player
+from player.library import MockMusicLibrary, MusicLibrary
+from player.playlist import PlaylistStore
+from player.prefs import Prefs
+from ui.screen_manager import ScreenManager
+
+EXIT_OK = 0
+EXIT_RESTART = 3
+BATTERY_POLL_S = 10.0
 
 
-# ============================================================================
-# MAIN APPLICATION CLASS
-# ============================================================================
+def _load(module, attr):
+    """Import ui.<module>.<attr> or return None (logged)."""
+    try:
+        return getattr(importlib.import_module("ui." + module), attr)
+    except Exception as e:
+        print(f"UI: skipping {module}.{attr}: {type(e).__name__}: {e}")
+        return None
+
+
+class _HudAdapter:
+    """ScreenManager overlays expose `active`; VolumeHUD exposes `visible`."""
+
+    def __init__(self, hud):
+        self.hud = hud
+
+    @property
+    def active(self):
+        return getattr(self.hud, "active", getattr(self.hud, "visible", False))
+
+    @property
+    def dirty(self):
+        return self.hud.dirty
+
+    @dirty.setter
+    def dirty(self, v):
+        self.hud.dirty = v
+
+    def update(self, dt):
+        self.hud.update(dt)
+
+    def draw(self, surface):
+        self.hud.draw(surface)
+
+
 class PestoPlayer:
-    """
-    Main application class for Pesto Player
-
-    Responsibilities:
-    - Initialize pygame and all subsystems
-    - Create and manage screens
-    - Main event loop
-    - Coordinate between UI and hardware
-    """
-
     def __init__(self):
         print("=" * 60)
-        print("PESTO PLAYER - Phase 1")
+        print("PESTO PLAYER" + ("  [TEST MODE]" if config.TEST_MODE else ""))
         print("=" * 60)
-
-        # Initialize pygame
         pygame.init()
         pygame.display.set_caption("Pesto Player")
-
-        # Create display surface
-        if config.TEST_MODE:
-            # Windowed mode for testing
-            self.screen = pygame.display.set_mode(
-                (config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
-            )
-            print(f"Display: {config.SCREEN_WIDTH}x{config.SCREEN_HEIGHT} (windowed)")
-        else:
-            # Fullscreen for actual hardware
-            self.screen = pygame.display.set_mode(
-                (config.SCREEN_WIDTH, config.SCREEN_HEIGHT),
-                pygame.FULLSCREEN
-            )
-            print(f"Display: {config.SCREEN_WIDTH}x{config.SCREEN_HEIGHT} (fullscreen)")
-
-            # Hide mouse cursor in production
+        size = (config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
+        self.screen = pygame.display.set_mode(size if config.TEST_MODE else size,
+                                              0 if config.TEST_MODE else pygame.FULLSCREEN)
+        if not config.TEST_MODE:
             pygame.mouse.set_visible(False)
 
-        # Clock for FPS control
         self.clock = pygame.time.Clock()
         self.running = True
+        self.exit_code = EXIT_OK
+        self.asleep = False
+        self._wake_swallow = False
+        self._last_input = time.time()
+        self._battery_t = BATTERY_POLL_S
+        self._critical_count = 0
+        self._low_warned = False
+        self._scan_done = False
+        self._restored = False
+        self._mouse_down = False
 
-        # Initialize subsystems
+        self.prefs = Prefs()
+        self.display_power = system.DisplayPower()
+        self.net = system.NetInfo()
         self._init_audio()
         self._init_library()
         self._init_hardware()
         self._init_ui()
+        self._start_initial_scan()
+        print("Initialization complete.")
 
-        print("Initialization complete!")
-        print("-" * 60)
-
-        if config.TEST_MODE:
-            print("TEST MODE CONTROLS:")
-            print("  Mouse = Touch input")
-            print("  Arrow Up/Down = Volume control")
-            print("  ESC = Power/Exit")
-            print("-" * 60)
-
+    # ---------------------------------------------------------------- init
     def _init_audio(self):
-        """Initialize audio player"""
-        print("Initializing audio player...")
-
-        # Try to use real VLC player, fall back to mock if not available
-        try:
-            self.audio_player = AudioPlayer()
-            print("✓ VLC audio player initialized")
-        except Exception as e:
-            print(f"Warning: Could not initialize VLC: {e}")
-            print("Using mock audio player")
-            self.audio_player = MockAudioPlayer()
-
-        # Set up audio callbacks
-        self.audio_player.on_track_change = self._on_track_change
-        self.audio_player.on_playback_state_change = self._on_playback_state_change
+        self.audio_player = create_player()
+        self.audio_player.on_error = self._on_audio_error
 
     def _init_library(self):
-        """Initialize music library"""
-        print("Initializing music library...")
-
-        # Check if music directory exists
         music_dir = os.path.expanduser(config.MUSIC_DIRECTORY)
-
-        if os.path.exists(music_dir) and not config.TEST_MODE:
-            # Use real library
+        if os.path.isdir(music_dir):
             self.music_library = MusicLibrary(music_dir)
-            track_count = self.music_library.scan()
-
-            if track_count > 0:
-                print(f"✓ Found {track_count} tracks in {music_dir}")
-            else:
-                print(f"Warning: No music files found in {music_dir}")
-                print("Using mock library for demonstration")
-                self.music_library = MockMusicLibrary()
-                self.music_library.scan()
-        else:
-            # Use mock library for testing
-            print(f"Using mock music library (TEST_MODE)")
+        elif config.TEST_MODE:
+            print(f"Music dir {music_dir} not found; using demo library (TEST_MODE)")
             self.music_library = MockMusicLibrary()
-            self.music_library.scan()
+        else:
+            try:
+                os.makedirs(music_dir, exist_ok=True)  # so the uploader has somewhere to write
+            except OSError as e:
+                print(f"Cannot create {music_dir}: {e}")
+            self.music_library = MusicLibrary(music_dir)
+        self.playlist_store = PlaylistStore()
 
     def _init_hardware(self):
-        """Initialize hardware interfaces"""
-        print("Initializing hardware...")
-
-        # Battery monitor
-        if config.TEST_MODE:
-            self.battery = MockBatteryMonitor()
-            print("✓ Mock battery monitor")
-        else:
-            self.battery = BatteryMonitor()
-            print("✓ Battery monitor initialized")
-
-        # Button handler
-        if config.TEST_MODE:
-            self.buttons = MockButtonHandler()
-            print("✓ Mock button handler (keyboard)")
-        else:
-            self.buttons = ButtonHandler()
-            print("✓ GPIO button handler")
-
-        # Set up button callbacks
-        self.buttons.set_callback('volume_up', self._on_volume_up)
-        self.buttons.set_callback('volume_down', self._on_volume_down)
-        self.buttons.set_callback('power_short', self._on_power_short)
-        self.buttons.set_callback('power_long', self._on_power_long)
+        self.battery = MockBatteryMonitor() if config.TEST_MODE else BatteryMonitor()
+        self.buttons = MockButtonHandler() if config.TEST_MODE else ButtonHandler()
+        self.buttons.set_callback("volume_up", lambda: self._volume_step(+1))
+        self.buttons.set_callback("volume_down", lambda: self._volume_step(-1))
+        self.buttons.set_callback("power_short", self._on_power_short)
+        self.buttons.set_callback("power_long", self._on_power_long)
 
     def _init_ui(self):
-        """Initialize UI and screens"""
-        print("Initializing UI...")
+        sm = self.screen_manager = ScreenManager(self.screen)
+        args = (sm, self.audio_player, self.music_library)
 
-        # Status bar (shown on all screens)
-        self.status_bar = StatusBar()
-        self.status_bar.set_battery_level(self.battery.get_level())
+        NowPlaying = _load("now_playing", "NowPlayingScreen")
+        if NowPlaying:
+            sm.register("now_playing", NowPlaying(*args), tab="now_playing")
+        reg = _load("library", "register_library_screens")
+        if reg:
+            reg(sm, self.audio_player, self.music_library, self.playlist_store)
+        Queue = _load("queue", "QueueScreen")
+        if Queue:
+            try:
+                sm.register("queue", Queue(*args, playlist_store=self.playlist_store), tab="queue")
+            except TypeError:
+                sm.register("queue", Queue(*args), tab="queue")
+        Mini = _load("mini_player", "MiniPlayer")
+        if Mini:
+            sm.mini_player = Mini(*args)
+        Hud = _load("volume_hud", "VolumeHUD")
+        self.volume_hud = Hud() if Hud else None
+        if self.volume_hud:
+            sm.add_overlay(_HudAdapter(self.volume_hud))
 
-        # Screen manager
-        self.screen_manager = ScreenManager(self.screen)
+        Add = _load("add_music", "AddMusicScreen")
+        if Add:
+            sm.register("add_music", Add(sm, self.audio_player, self.music_library, self.net), tab="library")
+        Settings = _load("settings", "SettingsScreen")
+        if Settings:
+            hooks = {"shutdown": self._do_shutdown, "restart": self._do_restart,
+                     "exit": self._do_exit, "brightness": self._apply_brightness}
+            sm.register("settings", Settings(sm, self.audio_player, self.music_library, self.prefs,
+                                             hooks, self.battery, self.display_power, self.net),
+                        tab="settings")
+        if "now_playing" in sm._screens:
+            sm.show("now_playing")
+        elif sm._screens:
+            sm.show(next(iter(sm._screens)))
+        self._update_battery(force=True)
+        if self.prefs.brightness and self.display_power.has_backlight:
+            self._apply_brightness(self.prefs.brightness)
 
-        # Create screens
-        self.now_playing_screen = NowPlayingScreen(
-            self.screen_manager,
-            self.audio_player
-        )
+    def _start_initial_scan(self):
+        def done():
+            self._scan_done = True
+        self.music_library.start_scan(on_done=done)
 
-        self.library_screen = LibraryScreen(
-            self.screen_manager,
-            self.audio_player,
-            self.music_library
-        )
-
-        self.settings_screen = SettingsScreen(
-            self.screen_manager,
-            self.audio_player,
-            self.music_library
-        )
-
-        # Register screens
-        self.screen_manager.register_screen('now_playing', self.now_playing_screen)
-        self.screen_manager.register_screen('library', self.library_screen)
-        self.screen_manager.register_screen('settings', self.settings_screen)
-
-        # Show initial screen
-        self.screen_manager.show_screen('now_playing')
-
-        print("✓ UI initialized")
-
-    # ========================================================================
-    # MAIN LOOP
-    # ========================================================================
+    # ------------------------------------------------------------ main loop
     def run(self):
-        """Main application loop"""
-        print("\nStarting main loop...")
-        print("Pesto Player is running!\n")
-
-        # Timers for periodic updates
-        last_battery_update = 0
-        battery_update_interval = 10.0  # Update battery every 10 seconds
-
+        print("Starting main loop...")
+        dt = 1.0 / config.FPS
         while self.running:
-            # Calculate delta time
-            dt = self.clock.tick(config.FPS) / 1000.0  # Convert to seconds
-
-            # Handle events
-            self._handle_events()
-
-            # Update subsystems
-            self.audio_player.update()
-            self.buttons.update()
-
-            # Update battery periodically
-            current_time = pygame.time.get_ticks() / 1000.0
-            if current_time - last_battery_update >= battery_update_interval:
-                self.battery.update()
-                self.status_bar.set_battery_level(self.battery.get_level())
-                last_battery_update = current_time
-
-            # Update current screen
-            self.screen_manager.update(dt)
-
-            # Draw everything
-            self._draw()
-
-            # Update display
-            pygame.display.flip()
-
-        # Cleanup
+            self.step(dt)
+            fps = 5 if self.asleep else self.screen_manager.target_fps()
+            dt = self.clock.tick(fps) / 1000.0
         self._cleanup()
+        return self.exit_code
+
+    def step(self, dt):
+        """One frame: events, updates, draw. Separate from run() so tests can drive it."""
+        self._handle_events()
+        self.audio_player.update()
+        self.buttons.update()
+        if self._scan_done:
+            self._scan_done = False
+            if not self._restored:
+                self._restored = True
+                self.audio_player.restore_state(self.music_library)
+            self.screen_manager.current_screen().dirty = True
+        self._update_battery()
+        self._update_timers()
+        if self.asleep:
+            return
+        self.screen_manager.update(dt)
+        rects = self.screen_manager.draw()
+        if rects:
+            bounds = self.screen.get_rect()
+            pygame.display.update([r.clip(bounds) for r in rects])
 
     def _handle_events(self):
-        """Handle pygame events"""
+        sm = self.screen_manager
+        moved = None
         for event in pygame.event.get():
-            # Quit event
             if event.type == pygame.QUIT:
                 self.running = False
-
-            # Mouse button down (touch start)
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                pos = event.pos
-                self.screen_manager.handle_touch(pos, 'down')
-
-            # Mouse button up (touch end)
-            elif event.type == pygame.MOUSEBUTTONUP:
-                pos = event.pos
-                self.screen_manager.handle_touch(pos, 'up')
-
-            # Mouse motion (touch drag)
-            elif event.type == pygame.MOUSEMOTION:
-                if event.buttons[0]:  # Left button is pressed
-                    pos = event.pos
-                    self.screen_manager.handle_touch(pos, 'motion')
-
-            # Keyboard events (for testing)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self._touch_activity()
+                if self._wake_swallow:
+                    continue
+                self._mouse_down = True
+                sm.handle_touch(event.pos, "down")
+            elif event.type == pygame.MOUSEMOTION and event.buttons[0]:
+                moved = event.pos          # coalesce: only the last motion per frame
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                if moved is not None and self._mouse_down:
+                    sm.handle_touch(moved, "move")
+                    moved = None
+                self._wake_swallow = False
+                if self._mouse_down:
+                    self._mouse_down = False
+                    sm.handle_touch(event.pos, "up")
             elif event.type == pygame.KEYDOWN:
-                if config.TEST_MODE and isinstance(self.buttons, MockButtonHandler):
-                    self.buttons.handle_key(event.key)
+                self._touch_activity()
+                if config.TEST_MODE:
+                    if isinstance(self.buttons, MockButtonHandler):
+                        self.buttons.handle_key(event.key)
+                    if event.key == pygame.K_q:
+                        self.running = False
+        if moved is not None and self._mouse_down:
+            sm.handle_touch(moved, "move")
 
-                # Also allow Q to quit in test mode
-                if config.TEST_MODE and event.key == pygame.K_q:
-                    self.running = False
+    # ------------------------------------------------------ sleep / wake
+    def _touch_activity(self):
+        self._last_input = time.time()
+        if self.asleep:
+            self._wake()
+            self._wake_swallow = True       # the waking touch must not press anything
 
-    def _draw(self):
-        """Draw all UI elements"""
-        # Draw current screen
-        self.screen_manager.draw()
+    def _sleep(self):
+        if self.asleep:
+            return
+        self.asleep = True
+        self.display_power.sleep()
+        self.screen.fill((0, 0, 0))
+        pygame.display.update()
 
-        # Draw status bar on top
-        self.status_bar.draw(self.screen)
+    def _wake(self):
+        if not self.asleep:
+            return
+        self.asleep = False
+        self._last_input = time.time()
+        self.display_power.wake()
+        self.screen_manager._full = True
+        cur = self.screen_manager.current_screen()
+        if cur:
+            cur.dirty = True
 
-    # ========================================================================
-    # CALLBACKS
-    # ========================================================================
-    def _on_track_change(self, track):
-        """Called when track changes"""
-        title = track.get('title', 'Unknown')
-        artist = track.get('artist', 'Unknown')
-        print(f"♪ Now Playing: {title} - {artist}")
+    def _update_timers(self):
+        if self.prefs.sleep_timer_expired():
+            self.audio_player.pause()
+            self._sleep()
+        t = self.prefs.screen_timeout
+        if t and not self.asleep and time.time() - self._last_input >= t:
+            self._sleep()
 
-    def _on_playback_state_change(self, is_playing):
-        """Called when playback state changes"""
-        state = "Playing" if is_playing else "Paused"
-        print(f"⏯ Playback: {state}")
+    # ------------------------------------------------------------ battery
+    def _update_battery(self, force=False):
+        self._battery_t += self.clock.get_time() / 1000.0 if not force else BATTERY_POLL_S
+        if self._battery_t < BATTERY_POLL_S:
+            return
+        self._battery_t = 0.0
+        self.battery.update()
+        lvl = self.battery.get_level()
+        if lvl is None:
+            return
+        self.screen_manager.status_bar.set_battery_level(lvl)
+        if self.battery.is_critical():
+            self._critical_count += 1
+            if self._critical_count >= 3 and not config.TEST_MODE:
+                self.screen_manager.toast("Battery critical - shutting down", "error")
+                self._do_shutdown()
+        else:
+            self._critical_count = 0
+        if self.battery.is_low() and not self._low_warned:
+            self._low_warned = True
+            self.screen_manager.toast("Battery low", "warn")
+        elif not self.battery.is_low():
+            self._low_warned = False
 
-    def _on_volume_up(self):
-        """Handle volume up button"""
-        self.audio_player.volume_up()
+    # ------------------------------------------------------- callbacks
+    def _on_audio_error(self, message):
+        self.screen_manager.toast(message, "error")
 
-    def _on_volume_down(self):
-        """Handle volume down button"""
-        self.audio_player.volume_down()
+    def _volume_step(self, direction):
+        was_asleep = self.asleep
+        self._touch_activity()
+        self._wake_swallow = False
+        if direction > 0:
+            self.audio_player.volume_up()
+        else:
+            self.audio_player.volume_down()
+        if self.volume_hud and not was_asleep:
+            self.volume_hud.show(self.audio_player.get_volume())
 
     def _on_power_short(self):
-        """Handle short power button press"""
-        print("Power button pressed (short)")
-        # In test mode, exit the app
-        if config.TEST_MODE:
-            print("Exiting...")
-            self.running = False
-        # In production, would toggle sleep/wake
+        if self.asleep:
+            self._touch_activity()
+            self._wake_swallow = False
+        else:
+            self._sleep()
 
     def _on_power_long(self):
-        """Handle long power button press"""
-        print("Power button pressed (long) - Shutting down")
+        self._do_shutdown()
+
+    def _apply_brightness(self, pct):
+        self.display_power.set_brightness(pct)
+
+    def _do_shutdown(self):
+        self._wake()
+        if config.TEST_MODE:
+            print("[TEST_MODE] shutdown requested: exiting instead")
+            self.exit_code = EXIT_OK
+            self.running = False
+            return
+        self.audio_player.save_state()
+        if system.shutdown():
+            self.exit_code = EXIT_OK        # status 0: systemd must not restart us
+            self.running = False
+        else:
+            self.screen_manager.toast("Shutdown failed (see pi/systemd/pesto-power.sudoers.example)", "error")
+
+    def _do_restart(self):
+        self.exit_code = EXIT_RESTART
         self.running = False
-        # In production, would initiate system shutdown
 
-    # ========================================================================
-    # CLEANUP
-    # ========================================================================
+    def _do_exit(self):
+        self.exit_code = EXIT_OK
+        self.running = False
+
+    # ----------------------------------------------------------- cleanup
     def _cleanup(self):
-        """Clean up resources"""
-        print("\nShutting down...")
+        print("Shutting down...")
+        try:
+            self.audio_player.cleanup()
+            self.buttons.cleanup()
+            self.display_power.wake()
+        finally:
+            pygame.quit()
 
-        self.audio_player.cleanup()
-        self.buttons.cleanup()
 
-        pygame.quit()
-        print("Goodbye!")
-
-
-# ============================================================================
-# ENTRY POINT
-# ============================================================================
 def main():
-    """Main entry point"""
     try:
         app = PestoPlayer()
-        app.run()
+        code = app.run()
     except KeyboardInterrupt:
-        print("\n\nInterrupted by user")
-        sys.exit(0)
-    except Exception as e:
-        print(f"\nERROR: {e}")
+        print("Interrupted")
+        code = EXIT_OK
+    except Exception:
         import traceback
         traceback.print_exc()
-        sys.exit(1)
+        code = 1
+    sys.exit(code)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,11 @@ import sys
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 os.environ.setdefault("PESTO_TEST", "1")
+import tempfile  # noqa: E402
+
+_TMP = tempfile.mkdtemp(prefix="pesto-test-")
+os.environ.setdefault("PESTO_STATE_DIR", os.path.join(_TMP, "state"))
+os.environ.setdefault("PESTO_MUSIC_DIR", os.path.join(_TMP, "no-music-here"))
 
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if APP_DIR not in sys.path:

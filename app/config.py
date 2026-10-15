@@ -57,7 +57,8 @@ VOLUME_STEP = 5           # Volume change step
 VOLUME_MIN = 0            # Minimum volume
 VOLUME_MAX = 100          # Maximum volume
 
-MUSIC_DIRECTORY = "~/Music"  # Default music directory
+import os as _o
+MUSIC_DIRECTORY = _o.environ.get("PESTO_MUSIC_DIR", "~/Music")  # env override for tests/dev
 
 # Supported audio formats
 SUPPORTED_FORMATS = ['.mp3', '.flac', '.m4a', '.ogg', '.wav', '.opus']  # matched case-insensitively
@@ -133,6 +134,7 @@ import os as _os
 STATE_DIR = _os.path.expanduser(_os.environ.get("PESTO_STATE_DIR", "~/.pesto"))
 STATE_FILE = _os.path.join(STATE_DIR, "state.json")
 INDEX_FILE = _os.path.join(STATE_DIR, "library_index.json")
+PREFS_FILE = _os.path.join(STATE_DIR, "prefs.json")
 PLAYLIST_DIR = _os.path.join(STATE_DIR, "playlists")
 DIRTY_FLAG = _os.path.join(STATE_DIR, "library.dirty")
 UPLOADER_PORT = 8080
