@@ -11,7 +11,7 @@ import pygame
 from ui import theme, text_cache
 from ui.screen_manager import Screen
 from ui.widgets import ScrollList
-from ui.now_playing import track_title, track_artist, fmt_time
+from ui.now_playing import track_title, track_artist
 
 POLL_S = 0.2
 HEADER_H = 48

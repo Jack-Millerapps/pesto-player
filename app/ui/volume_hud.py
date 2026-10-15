@@ -11,10 +11,14 @@ class VolumeHUD:
         self.volume = 0
         self.remaining = 0.0
         self.dirty = False
-        self.rect = pygame.Rect(40, theme.STATUS_H + 12, theme.SCREEN_W - 80, 44)
+        self.rect = pygame.Rect(40, theme.STATUS_H + 6 + 36 + 6, theme.SCREEN_W - 80, 44)
 
     @property
     def visible(self):
+        return self.remaining > 0
+
+    @property
+    def active(self):
         return self.remaining > 0
 
     def show(self, volume):
@@ -27,7 +31,9 @@ class VolumeHUD:
             self.remaining -= dt
             if self.remaining <= 0:
                 self.remaining = 0.0
-                self.dirty = True      # needs one redraw to erase
+                # The shell repaints once on active -> inactive; leaving dirty=True here
+                # would force a full redraw every frame forever.
+                self.dirty = False
 
     def draw(self, surface):
         if not self.visible:

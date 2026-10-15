@@ -115,10 +115,13 @@ class NowPlayingScreen(Screen):
 
         self.title_marquee = Marquee(self.title_rect, "Nothing playing", theme.FS_TITLE, theme.TEXT, True)
         self.title_text = "Nothing playing"
+        self.dirty_rects = []
         self.artist_text = "Pick a song from Library"
         self.album_text = ""
         self._title_scrolls = False
         self._placeholder = None
+        self.dirty_rects = []
+        self.bubble_rect = pygame.Rect(0, 0, 0, 0)
 
         self.state = {}
         self.track = None
@@ -147,6 +150,7 @@ class NowPlayingScreen(Screen):
         self._art_done = {}
         self._art_pending = set()
         self._worker = None
+        self._layout_title()
         self._refresh()
 
     # ---- lifecycle -------------------------------------------------------
@@ -211,9 +215,19 @@ class NowPlayingScreen(Screen):
             self.artist_text = "Pick a song from Library"
             self.album_text = ""
         self.title_marquee.set_text(self.title_text)
-        self._title_scrolls = text_cache.text_width(self.title_text, theme.FS_TITLE, True) > self.title_rect.w
+        self._layout_title()
         self._placeholder = letter_tile(t, ART_SIZE) if t else None
         self._load_art()
+
+    def _layout_title(self):
+        w = text_cache.text_width(self.title_text, theme.FS_TITLE, True)
+        self._title_scrolls = w > self.title_rect.w
+        if self._title_scrolls:
+            self.title_marquee.rect = self.title_rect.copy()
+        else:                                   # short titles are centred like the artist line
+            r = pygame.Rect(0, self.title_rect.y, w + 2, self.title_rect.h)
+            r.centerx = self.title_rect.centerx
+            self.title_marquee.rect = r
 
     # ---- art (async + LRU) ----------------------------------------------
     def _load_art(self):
@@ -285,8 +299,11 @@ class NowPlayingScreen(Screen):
             self._refresh()
         self._collect_art()
         self.title_marquee.update(dt)
-        if self._title_scrolls:
-            self.dirty = True
+        if self._title_scrolls and self.title_marquee.dirty:
+            if getattr(self.screen_manager, "supports_dirty_rects", False):
+                self.dirty_rects = [self.title_rect.copy()]    # only the marquee strip
+            else:
+                self.dirty = True
 
     # ---- touch -----------------------------------------------------------
     def _seek_frac(self, x):
@@ -368,6 +385,7 @@ class NowPlayingScreen(Screen):
         pygame.draw.rect(surface, theme.BORDER, self.art_rect, 1)
 
         self.title_marquee.draw(surface)
+        self.dirty_rects = []
         self._blit_centered(surface, self.artist_text, theme.FS_BODY, theme.TEXT_DIM, self.artist_rect)
         if self.album_text:
             self._blit_centered(surface, self.album_text, theme.FS_SMALL, theme.TEXT_DISABLED, self.album_rect)
@@ -391,8 +409,9 @@ class NowPlayingScreen(Screen):
         pygame.draw.circle(surface, theme.TEXT, (bar.left + fill, y), 8 if self.seek_dragging else 6)
         if self.seek_dragging and self.duration > 0:
             bubble = text_cache.render(fmt_time(self.seek_value * self.duration), theme.FS_BODY, theme.TEXT)
-            br = bubble.get_rect(center=(min(max(bar.left + fill, bar.left + 24), bar.right - 24), bar.top + 2))
-            pygame.draw.rect(surface, theme.PRIMARY_DARK, br.inflate(10, 4), border_radius=4)
+            br = bubble.get_rect(center=(min(max(bar.left + fill, bar.left + 24), bar.right - 24), bar.centery - 14))
+            self.bubble_rect = br.inflate(10, 4)
+            pygame.draw.rect(surface, theme.PRIMARY_DARK, self.bubble_rect, border_radius=4)
             surface.blit(bubble, br)
         left = text_cache.render(self.pos_text, theme.FS_SMALL, theme.TEXT_DIM)
         right = text_cache.render(self.dur_text, theme.FS_SMALL, theme.TEXT_DIM)

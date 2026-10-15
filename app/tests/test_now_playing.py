@@ -310,3 +310,84 @@ def test_volume_hud_lifecycle():
     assert not h.visible
     h.show(500); assert h.volume == 100
     h.show(-5); assert h.volume == 0
+
+
+# --- review fixes (real ScreenManager / ScrollList) --------------------------
+def test_volume_hud_active_and_no_perpetual_dirty_with_real_manager():
+    from ui.screen_manager import ScreenManager
+    surf = pygame.Surface((320, 480))
+    sm = ScreenManager(surf)
+    _, audio, lib = mk()
+    np_ = NowPlayingScreen(sm, audio, lib)
+    sm.register("now_playing", np_, tab="now_playing")
+    hud = VolumeHUD()
+    sm.add_overlay(hud)
+    sm.show("now_playing")
+    sm.draw()
+    assert hud.active is False
+    hud.show(60)
+    assert hud.active is True
+    assert sm.draw()
+    sm.update(2.0)
+    assert hud.active is False
+    sm.draw()                       # repaint that erases the HUD
+    assert sm.draw() == []
+    assert sm.draw() == []
+    assert hud.dirty is False
+
+
+def test_volume_hud_below_toast_band():
+    h = VolumeHUD()
+    assert h.rect.top >= theme.STATUS_H + 6 + 36
+
+
+def test_title_centered_when_short_and_bubble_clear_of_album_line():
+    sm, audio, lib = mk([make_track("Hi")])
+    np_ = NowPlayingScreen(sm, audio, lib)
+    assert abs(np_.title_marquee.rect.centerx - np_.title_rect.centerx) <= 1
+    sm, audio, lib = mk(tracks=[])
+    np_ = NowPlayingScreen(sm, audio, lib)
+    assert abs(np_.title_marquee.rect.centerx - np_.title_rect.centerx) <= 1
+    sm, audio, lib = mk([make_track("Hi")])
+    np_ = NowPlayingScreen(sm, audio, lib)
+    np_.handle_touch(np_.seek_rect.center, "down")
+    np_.draw(pygame.Surface((320, 480)))
+    assert not np_.bubble_rect.colliderect(np_.album_rect)
+    assert not np_.bubble_rect.colliderect(np_.artist_rect)
+
+
+def test_scrolling_title_marks_sub_rect_only_when_manager_supports_it():
+    sm, audio, lib = mk([make_track("T" * 200)])
+    np_ = NowPlayingScreen(sm, audio, lib)
+    np_.draw(pygame.Surface((320, 480)))
+    assert np_.dirty is False
+    for _ in range(60):
+        np_.update(1 / 30)
+    assert np_.dirty is True               # fallback: no dirty-rect support in FakeSM
+    np_.draw(pygame.Surface((320, 480)))
+    sm.supports_dirty_rects = True
+    np_.dirty_rects = []
+    for _ in range(60):
+        np_.update(1 / 30)
+    assert np_.dirty is False
+    assert np_.dirty_rects and all(r.colliderect(np_.title_rect) and np_.title_rect.contains(r)
+                                   for r in np_.dirty_rects)
+
+
+def test_queue_real_scrolllist_tap_plays_and_scroll_does_not():
+    from ui.screen_manager import ScreenManager
+    tracks = [make_track("T%d" % i) for i in range(12)]
+    sm = ScreenManager(pygame.Surface((320, 480)))
+    _, audio, lib = mk(tracks)
+    q = QueueScreen(sm, audio, lib)
+    sm.register("queue", q, tab="queue")
+    sm.show("queue")
+    sm.draw()
+    p = (100, q.list_rect.top + 56 + 20)       # row 1
+    sm.handle_touch(p, "down"); sm.handle_touch(p, "up")
+    assert ("set_queue", 1) in audio.calls
+    audio.calls.clear()
+    sm.handle_touch((100, 300), "down")
+    sm.handle_touch((100, 200), "move")
+    sm.handle_touch((100, 150), "up")
+    assert not [c for c in audio.calls if c[0] == "set_queue"]
