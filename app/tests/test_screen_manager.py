@@ -383,3 +383,54 @@ def test_repeated_sub_rect_redraws_do_not_hold_active_fps():
         s.dirty_rects.append(pygame.Rect(20, 100, 100, 24))
         assert sm.draw() == [pygame.Rect(20, 100, 100, 24)]
     assert sm.target_fps() == theme.FPS_IDLE
+
+
+def test_failed_screen_draw_restores_clip_and_repaints_everything():
+    sm, scr, surf = make()
+    painted = {"mini": 0}
+
+    class Mini:
+        dirty = True
+        def handle_touch(self, pos, kind): return False
+        def update(self, dt): pass
+        def draw(self, s):
+            painted["mini"] += 1
+            self.dirty = False
+
+    sm.mini_player = Mini()
+    full_clip = surf.get_clip()
+    sm.show("queue")
+    sm.draw()
+    boom = {"n": 1}
+    orig = scr["now_playing"].draw
+
+    def bad(surface):
+        if boom["n"]:
+            boom["n"] -= 1
+            raise RuntimeError("draw failed")
+    scr["now_playing"].draw = bad
+    sm.show("now_playing")
+    with pytest.raises(RuntimeError):
+        sm.draw()
+    assert surf.get_clip() == full_clip            # clip not stuck
+    # switch tab; everything must repaint
+    c = tab_center(2)
+    sm.handle_touch(c, "down")
+    sm.handle_touch(c, "up")
+    before = painted["mini"]
+    rects = sm.draw()
+    assert sm.tab_bar.active == "queue"
+    assert painted["mini"] == before + 1
+    assert rects == [pygame.Rect(0, 0, theme.SCREEN_W, theme.SCREEN_H)]
+    assert surf.get_clip() == full_clip
+
+
+def test_failed_draw_sets_full_flag_for_retry():
+    sm, scr, surf = make()
+    sm.show("library")
+    sm.draw()
+    scr["library"].draw = lambda s: (_ for _ in ()).throw(ValueError("x"))
+    scr["library"].dirty = True
+    with pytest.raises(ValueError):
+        sm.draw()
+    assert sm._full is True

@@ -313,23 +313,34 @@ class ScreenManager:
             rects.append(pygame.Rect(0, 0, theme.SCREEN_W, theme.STATUS_H))
         if full or content_d:
             prev = surf.get_clip()
-            surf.set_clip(content)
-            pygame.draw.rect(surf, theme.BG, content)
-            scr.draw(surf)
-            surf.set_clip(prev)
+            try:
+                surf.set_clip(content)
+                pygame.draw.rect(surf, theme.BG, content)
+                scr.draw(surf)
+            except BaseException:
+                self._full = True          # repaint everything next frame
+                raise
+            finally:
+                surf.set_clip(prev)        # never leave the content clip stuck
             scr.dirty = False
             rects.append(content)
         elif sub:
             prev = surf.get_clip()
-            for r in sub:
-                r = pygame.Rect(r).clip(content)
-                if r.w <= 0 or r.h <= 0:
-                    continue
-                surf.set_clip(r)
-                pygame.draw.rect(surf, theme.BG, r)
-                scr.draw(surf)
-                rects.append(r)
-            surf.set_clip(prev)
+            try:
+                for r in sub:
+                    r = pygame.Rect(r).clip(content)
+                    if r.w <= 0 or r.h <= 0:
+                        continue
+                    surf.set_clip(r)
+                    pygame.draw.rect(surf, theme.BG, r)
+                    scr.draw(surf)
+                    rects.append(r)
+            except BaseException:
+                self._full = True
+                del scr.dirty_rects[:]
+                raise
+            finally:
+                surf.set_clip(prev)
         if sub and hasattr(scr, "dirty_rects"):
             del scr.dirty_rects[:]
         if mini_vis and (full or mini_d):
