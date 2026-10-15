@@ -391,3 +391,21 @@ def test_queue_real_scrolllist_tap_plays_and_scroll_does_not():
     sm.handle_touch((100, 200), "move")
     sm.handle_touch((100, 150), "up")
     assert not [c for c in audio.calls if c[0] == "set_queue"]
+
+
+def test_scrolling_title_uses_real_manager_sub_rects():
+    from ui.screen_manager import ScreenManager
+    sm = ScreenManager(pygame.Surface((320, 480)))
+    _, audio, lib = mk([make_track("T" * 200)])
+    np_ = NowPlayingScreen(sm, audio, lib)
+    sm.register("now_playing", np_, tab="now_playing")
+    sm.show("now_playing")
+    sm.draw()
+    got = []
+    for _ in range(90):
+        sm.update(1 / 30)
+        got += sm.draw()
+    assert got
+    tail = got[3:]       # first frames may carry a legitimate full repaint (async art arrives)
+    assert len(tail) > 20
+    assert all(np_.title_rect.contains(r) for r in tail)
