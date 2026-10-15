@@ -6,6 +6,8 @@ For testing: Returns mock battery level
 For production: Reads from actual I2C sensor
 """
 
+import os
+
 import config
 
 # Try to import I2C library, but make it optional for testing
@@ -15,68 +17,84 @@ try:
     from adafruit_max1704x import MAX17048
     I2C_AVAILABLE = True
 except ImportError:
-    print("Warning: I2C libraries not available. Using mock battery monitor.")
+    print("Warning: I2C libraries not available. Battery will report unknown.")
     I2C_AVAILABLE = False
 
 
 # ============================================================================
 # BATTERY MONITOR CLASS
 # ============================================================================
+POWER_SUPPLY_DIR = "/sys/class/power_supply"
+
+
+def _read_sysfs_capacity(base=POWER_SUPPLY_DIR):
+    """Percent from the first battery-type supply under /sys, or None."""
+    try:
+        for name in sorted(os.listdir(base)):
+            d = os.path.join(base, name)
+            try:
+                with open(os.path.join(d, "type")) as f:
+                    if f.read().strip() != "Battery":
+                        continue
+                with open(os.path.join(d, "capacity")) as f:
+                    return max(0, min(100, int(f.read().strip())))
+            except (OSError, ValueError):
+                continue
+    except OSError:
+        pass
+    return None
+
+
 class BatteryMonitor:
     """
-    Battery monitor using MAX17048
-
-    Features:
-    - Read battery percentage
-    - Low battery warnings
-    - Update at regular intervals
+    Real battery level: MAX17048 over I2C, else a /sys/class/power_supply battery.
+    get_level() returns an int 0-100, or None when no battery source exists
+    (the UI should then hide the percentage instead of showing a fake number).
     """
 
     def __init__(self):
-        self.battery_level = 100
-        self.voltage = 4.2
+        self.battery_level = None
+        self.voltage = None
+        self.sensor = None
 
-        if not config.TEST_MODE and I2C_AVAILABLE:
+        if I2C_AVAILABLE and not config.TEST_MODE:
             try:
-                # Initialize I2C
                 i2c = busio.I2C(SCL, SDA)
                 self.sensor = MAX17048(i2c)
-                print("Battery monitor initialized")
+                print("Battery monitor initialized (MAX17048)")
             except Exception as e:
-                print(f"Error initializing battery monitor: {e}")
+                print(f"Battery: MAX17048 unavailable: {e}")
                 self.sensor = None
-        else:
-            self.sensor = None
-            print("Using mock battery monitor")
+        self.update()
+
+    @property
+    def available(self):
+        return self.battery_level is not None
 
     def update(self):
-        """Read current battery level"""
+        """Read current battery level (never raises)."""
+        level = None
         if self.sensor:
             try:
-                self.battery_level = self.sensor.cell_percent
+                level = int(round(self.sensor.cell_percent))
                 self.voltage = self.sensor.cell_voltage
             except Exception as e:
-                print(f"Error reading battery: {e}")
-        else:
-            # Mock battery level (slowly decrease for testing)
-            # In real testing, this would be constant
-            self.battery_level = config.MOCK_BATTERY_LEVEL
+                print(f"Battery: read error: {e}")
+        if level is None:
+            level = _read_sysfs_capacity()
+        self.battery_level = None if level is None else max(0, min(100, level))
 
     def get_level(self):
-        """Get battery level (0-100)"""
         return self.battery_level
 
     def get_voltage(self):
-        """Get battery voltage"""
         return self.voltage
 
     def is_low(self):
-        """Check if battery is low"""
-        return self.battery_level <= config.BATTERY_LOW_WARNING
+        return self.battery_level is not None and self.battery_level <= config.BATTERY_LOW_WARNING
 
     def is_critical(self):
-        """Check if battery is critically low"""
-        return self.battery_level <= config.BATTERY_CRITICAL
+        return self.battery_level is not None and self.battery_level <= config.BATTERY_CRITICAL
 
 
 # ============================================================================
@@ -88,6 +106,8 @@ class MockBatteryMonitor:
     def __init__(self):
         self.battery_level = config.MOCK_BATTERY_LEVEL
         self.voltage = 4.0
+
+    available = True
 
     def update(self):
         pass

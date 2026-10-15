@@ -190,3 +190,40 @@ def test_art_sidecar_and_missing(tagged, tmp_path):
     assert a is not None and a.get_size() == (64, 64)
     assert tagged.get_art(tr, 64) is a  # cached
     assert tagged.get_albums()[0]["art_path"] == cover
+
+
+# ---------------------------------------------------------------- playlists
+def test_playlist_store_roundtrip(tmp_path, mock_tracks):
+    from player.playlist import PlaylistStore
+    s = PlaylistStore(str(tmp_path / "pl"))
+    assert s.list_names() == [] and s.load("nope") == []
+    s.save("Road Trip", mock_tracks[:2])
+    s.save("alpha", mock_tracks[2:3])
+    assert s.list_names() == ["alpha", "Road Trip"]
+    assert [t["title"] for t in s.load("Road Trip")] == ["Alpha", "Bravo"]
+    s.add("Road Trip", mock_tracks[2])
+    s.add("Road Trip", mock_tracks[2])  # duplicate ignored
+    assert len(s.load("Road Trip")) == 3
+    s.delete("Road Trip")
+    assert s.list_names() == ["alpha"]
+
+
+def test_playlist_names_cannot_escape_directory(tmp_path, mock_tracks):
+    from player.playlist import PlaylistStore
+    s = PlaylistStore(str(tmp_path / "pl"))
+    s.save("../../evil", mock_tracks[:1])
+    assert not (tmp_path / "evil.json").exists()
+    assert all(f.startswith(str(tmp_path / "pl")) for f in
+               [os.path.join(str(tmp_path / "pl"), x) for x in os.listdir(str(tmp_path / "pl"))])
+    with pytest.raises(ValueError):
+        s.save("  ", [])
+    assert s.load("  ") == []
+
+
+def test_playlist_corrupt_file_ignored(tmp_path):
+    from player.playlist import PlaylistStore
+    d = tmp_path / "pl"
+    d.mkdir()
+    (d / "bad.json").write_text("{nope")
+    s = PlaylistStore(str(d))
+    assert s.list_names() == [] and s.load("bad") == []
