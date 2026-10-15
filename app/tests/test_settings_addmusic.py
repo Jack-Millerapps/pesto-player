@@ -185,3 +185,30 @@ def test_prefs_sleep_timer_expires_once():
     now[0] += 15 * 60
     assert p.sleep_timer_expired() and not p.sleep_timer_expired()
     assert p.sleep_timer_remaining() is None
+
+
+def test_volume_label_tap_does_not_mute_and_draw_uses_cache(tmp_path, monkeypatch):
+    s, sm, a = make_settings(tmp_path)
+    a.set_volume(60)
+    tap(s, "volume", x=20)
+    assert a.get_volume() == 60
+    s._refresh()
+    calls = []
+    monkeypatch.setattr(s, "_state", lambda: calls.append(1) or {})
+    monkeypatch.setattr(type(s), "value_text", lambda self, k: calls.append(1) or "")
+    surf = pygame.display.get_surface()
+    for _ in range(3):
+        s.draw(surf)
+    assert calls == []        # drawing never recomputes state / disk usage
+
+
+def test_url_is_wrapped_not_truncated_and_caption_matches_case():
+    url = "http://192.168.100.100:8080/?t=" + "A1b2C3d4E5f6G7h8I9j0Kl"
+    lines = add_music.wrap_chars(url, 12, 296)
+    assert "".join(lines) == url and 1 <= len(lines) <= 2
+    from ui import text_cache
+    assert all(text_cache.text_width(l, 12) <= 296 for l in lines)
+    assert "Scan" in add_music.caption_for(True, "10.0.0.5")
+    assert "Wi-Fi" in add_music.caption_for(False, None).split("(")[0]
+    c = add_music.caption_for(False, "10.0.0.5")
+    assert "Connect to Wi-Fi" not in c and "Uploader" in c

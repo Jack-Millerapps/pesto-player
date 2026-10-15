@@ -44,6 +44,9 @@ class SettingsScreen(Screen):
         self._down_pos = (0, 0)
         self._poll_t = 0.0
         self._cache = {}
+        self._st = {}          # cached player state, refreshed ~1 Hz and after taps
+        self._vals = {}        # cached row texts (statvfs etc. are not done per draw)
+        self._subs = {}
         self._scan_text = None
         top = theme.STATUS_H
         self.list = ScrollList((0, top, theme.SCREEN_W, theme.CONTENT_BOTTOM_MINI - top),
@@ -109,7 +112,7 @@ class SettingsScreen(Screen):
         lbl = text_cache.render(label, theme.FS_BODY, color)
         surface.blit(lbl, (x, rect.centery - lbl.get_height() // 2))
         if key == "volume":
-            vol = self._state().get("volume", 0)
+            vol = self._st.get("volume", 0)
             bar = pygame.Rect(VOL_BAR_X0, rect.centery - 3, VOL_BAR_X1 - VOL_BAR_X0, 6)
             pygame.draw.rect(surface, theme.BORDER, bar, border_radius=3)
             fill = bar.copy()
@@ -120,11 +123,11 @@ class SettingsScreen(Screen):
         elif key in DANGER_KEYS:
             pass
         else:
-            val = self.value_text(key)
-            sub = self.sub_text(key)
+            val = self._vals.get(key, "")
+            sub = self._subs.get(key, "")
             max_w = rect.w - 2 * theme.PAD - lbl.get_width() - 24 - (14 if key in NAV_KEYS else 0)
             if key == "shuffle":
-                self._draw_toggle(surface, rect, self._state().get("shuffle", False))
+                self._draw_toggle(surface, rect, self._st.get("shuffle", False))
             elif val:
                 v = text_cache.render(text_cache.ellipsize(val, theme.FS_BODY, max(40, max_w)),
                                       theme.FS_BODY, theme.PRIMARY_LIGHT if key != "version" else theme.TEXT_DIM)
@@ -169,6 +172,8 @@ class SettingsScreen(Screen):
         sm = self.screen_manager
         if key == "volume":
             x = self._down_pos[0]
+            if x < VOL_BAR_X0 - 10:      # taps on the label must not change (or mute) volume
+                return
             vol = round(100.0 * (x - VOL_BAR_X0) / (VOL_BAR_X1 - VOL_BAR_X0))
             a.set_volume(max(0, min(100, vol)))
         elif key == "output":
@@ -196,6 +201,7 @@ class SettingsScreen(Screen):
             sm.push("add_music")
         elif key in DANGER_KEYS:
             self._confirm(key)
+        self._refresh()
         self.dirty = True
 
     def _rescan(self):
@@ -225,9 +231,20 @@ class SettingsScreen(Screen):
         self.screen_manager.show_sheet([(labels[key], fn)])
 
     # -------------------------------------------------------------- update
+    def _refresh(self):
+        """Recompute cached state/row texts; returns True if anything changed."""
+        self._st = self._state()
+        vals = {k: self.value_text(k) for k, _ in ROWS}
+        subs = {k: self.sub_text(k) for k, _ in ROWS}
+        snap = (vals, subs, self._st.get("volume"), self._st.get("shuffle"))
+        changed = snap != self._cache.get("snap")
+        self._vals, self._subs, self._cache["snap"] = vals, subs, snap
+        return changed
+
     def on_enter(self, **kw):
         self.net.refresh()
         self._poll_t = 0.0
+        self._refresh()
         self.dirty = True
 
     def on_leave(self):
@@ -240,7 +257,5 @@ class SettingsScreen(Screen):
         self._poll_t += dt
         if self._poll_t >= 1.0:
             self._poll_t = 0.0
-            snap = tuple(self.value_text(k) + self.sub_text(k) for k, _ in ROWS)
-            if snap != self._cache.get("snap"):
-                self._cache["snap"] = snap
+            if self._refresh():
                 self.dirty = True

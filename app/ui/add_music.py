@@ -51,6 +51,29 @@ def qr_surface(text, size=QR_SIZE):
     return surf
 
 
+def wrap_chars(text, size, max_w):
+    """Split text (no spaces, e.g. a URL) into lines no wider than max_w pixels."""
+    lines, cur = [], ""
+    for ch in text:
+        if cur and text_cache.text_width(cur + ch, size) > max_w:
+            lines.append(cur)
+            cur = ch
+        else:
+            cur += ch
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def caption_for(has_qr, ip):
+    """Caption under the QR box, matching the actual situation."""
+    if has_qr:
+        return "Scan with your phone camera (same Wi-Fi)"
+    if not ip:
+        return "Connect to Wi-Fi to add songs from a phone"
+    return "Uploader isn't running (pesto-uploader service)"
+
+
 def read_uploader_info(path=None):
     try:
         with open(path or config.UPLOADER_INFO_FILE, "r", encoding="utf-8") as f:
@@ -230,7 +253,6 @@ class AddMusicScreen(Screen):
         if self._qr is not None:
             r = self._qr.get_rect(midtop=(theme.SCREEN_W // 2, qy))
             surface.blit(self._qr, r)
-            cap = "Scan with your phone camera (same Wi-Fi)"
         else:
             box = pygame.Rect(0, 0, QR_SIZE, QR_SIZE)
             box.midtop = (theme.SCREEN_W // 2, qy)
@@ -238,17 +260,18 @@ class AddMusicScreen(Screen):
             msg = "No Wi-Fi" if not self.net.ip else "Uploader off"
             m = text_cache.render(msg, theme.FS_BODY, theme.TEXT_DIM)
             surface.blit(m, m.get_rect(center=box.center))
-            cap = "Connect to Wi-Fi to add songs from a phone"
+        cap = caption_for(self._qr is not None, self.net.ip)
         c = text_cache.render(text_cache.ellipsize(cap, theme.FS_SMALL, 296), theme.FS_SMALL, theme.TEXT_DIM)
-        surface.blit(c, c.get_rect(midtop=(theme.SCREEN_W // 2, qy + QR_SIZE + 6)))
+        surface.blit(c, c.get_rect(midtop=(theme.SCREEN_W // 2, qy + QR_SIZE + 4)))
         if self._qr_url:
-            u = text_cache.render(text_cache.ellipsize(self._qr_url, theme.FS_SMALL, 296),
-                                  theme.FS_SMALL, theme.PRIMARY_LIGHT)
-            surface.blit(u, u.get_rect(midtop=(theme.SCREEN_W // 2, qy + QR_SIZE + 24)))
+            # Never ellipsized: the full URL (with token) must be typeable if the scan fails.
+            for i, line in enumerate(wrap_chars(self._qr_url, theme.FS_SMALL, 296)[:3]):
+                u = text_cache.render(line, theme.FS_SMALL, theme.PRIMARY_LIGHT)
+                surface.blit(u, u.get_rect(midtop=(theme.SCREEN_W // 2, qy + QR_SIZE + 20 + i * 13)))
         col = {"success": theme.SUCCESS, "warn": theme.WARNING, "error": theme.ERROR}.get(
             self.status_kind, theme.TEXT)
         if self.status:
             s = text_cache.render(text_cache.ellipsize(self.status, theme.FS_BODY, 296), theme.FS_BODY, col)
-            surface.blit(s, s.get_rect(midtop=(theme.SCREEN_W // 2, 326)))
+            surface.blit(s, s.get_rect(midtop=(theme.SCREEN_W // 2, 332)))
         self.rescan_btn.draw(surface)
         self.dirty = False
