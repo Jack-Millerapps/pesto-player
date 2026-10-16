@@ -65,9 +65,11 @@ def wrap_chars(text, size, max_w):
     return lines
 
 
-def caption_for(has_qr, ip):
+def caption_for(has_qr, ip, anywhere=False):
     """Caption under the QR box, matching the actual situation."""
     if has_qr:
+        if anywhere:
+            return "Scan from any network (needs Tailscale app)"
         return "Scan with your phone camera (same Wi-Fi)"
     if not ip:
         return "Connect to Wi-Fi to add songs from a phone"
@@ -99,7 +101,11 @@ class AddMusicScreen(Screen):
                            on_click=self._on_back)
         self.rescan_btn = Button((theme.PAD, 352, theme.SCREEN_W - 2 * theme.PAD, theme.MIN_TOUCH),
                                  "Rescan library", self.rescan)
-        self.widgets = [self.back, self.rescan_btn]
+        # Only shown/active when a Tailscale address exists; flips LAN <-> tailnet URL.
+        self.mode_btn = Button((theme.SCREEN_W - theme.PAD - 124, theme.STATUS_H, 124, HEADER_H),
+                               "Home Wi-Fi", self._toggle_mode, style="ghost", enabled=False)
+        self.widgets = [self.back, self.mode_btn, self.rescan_btn]
+        self.anywhere = False
         self.status = ""
         self.status_kind = "info"
         self._progress = None
@@ -112,7 +118,7 @@ class AddMusicScreen(Screen):
         self._net_t = 0.0
         self._seen_mtime = self._dirty_mtime()
         self._pending_rescan = False
-        self._info = ("", "", "")
+        self._info = ("", "", "", "", False)
         self._scanning_shown = False
 
     # ----------------------------------------------------------- helpers
@@ -133,8 +139,26 @@ class AddMusicScreen(Screen):
         except Exception:
             return False
 
+    def _ts_ip(self):
+        return getattr(self.net, "ts_ip", None)
+
+    def _toggle_mode(self):
+        self.anywhere = not self.anywhere
+        self._sync_mode()
+        self._poll_t = POLL_S                  # rebuild QR on next update
+        self.dirty = True
+
+    def _sync_mode(self):
+        """Keep the toggle in step with Tailscale presence (it may come and go)."""
+        has = bool(self._ts_ip())
+        if not has:
+            self.anywhere = False
+        self.mode_btn.enabled = has
+        self.mode_btn.text = "Anywhere" if self.anywhere else "Home Wi-Fi"
+
     def build_url(self, ip=None):
-        ip = ip or self.net.ip
+        if ip is None:
+            ip = self._ts_ip() if self.anywhere else self.net.ip
         if not ip or not self._token:
             return None
         return "http://%s:%d/?t=%s" % (ip, self._port, self._token)
@@ -194,6 +218,7 @@ class AddMusicScreen(Screen):
             self._poll()
 
     def _poll(self):
+        self._sync_mode()
         token, port = read_uploader_info()
         if (token, port) != (self._token, self._port):
             self._token, self._port = token, port
@@ -208,7 +233,8 @@ class AddMusicScreen(Screen):
             n = len(self.library.get_tracks())
         except Exception:
             n = 0
-        info = (human_bytes(free), "%d" % n, "%s|%s" % (self.net.ssid or "", self.net.ip or ""))
+        info = (human_bytes(free), "%d" % n, "%s|%s" % (self.net.ssid or "", self.net.ip or ""),
+                self._ts_ip() or "", self.anywhere)
         if info != self._info:
             self._info = info
             self.dirty = True
@@ -237,16 +263,20 @@ class AddMusicScreen(Screen):
     # ----------------------------------------------------------------- draw
     def draw(self, surface):
         self.back.draw(surface)
+        if self.mode_btn.enabled:
+            self.mode_btn.draw(surface)
         t = text_cache.render("Add music", theme.FS_HEADER, theme.TEXT, bold=True)
         surface.blit(t, (theme.MIN_TOUCH + 8, theme.STATUS_H + (HEADER_H - t.get_height()) // 2))
         x = theme.PAD
-        free, count, net = self._info
+        free, count, net, ts_ip, anywhere = self._info
         ssid, _, ip = net.partition("|")
         dest = text_cache.ellipsize("Saving to " + config.MUSIC_DIRECTORY, theme.FS_SMALL, 296)
         lines = [dest,
                  "Free space: %s   Songs: %s" % (free or "?", count or "0"),
                  text_cache.ellipsize("Wi-Fi: %s   IP: %s" % (ssid or "not connected", ip or "-"),
                                       theme.FS_SMALL, 296)]
+        if ts_ip and anywhere:
+            lines[2] = text_cache.ellipsize("Tailscale IP: " + ts_ip, theme.FS_SMALL, 296)
         for i, line in enumerate(lines):
             surface.blit(text_cache.render(line, theme.FS_SMALL, theme.TEXT_DIM), (x, 72 + i * 18))
         qy = 130
@@ -257,10 +287,11 @@ class AddMusicScreen(Screen):
             box = pygame.Rect(0, 0, QR_SIZE, QR_SIZE)
             box.midtop = (theme.SCREEN_W // 2, qy)
             pygame.draw.rect(surface, theme.BG_LIGHT, box, border_radius=8)
-            msg = "No Wi-Fi" if not self.net.ip else "Uploader off"
+            msg = "No Wi-Fi" if not (self._ts_ip() if self.anywhere else self.net.ip) else "Uploader off"
             m = text_cache.render(msg, theme.FS_BODY, theme.TEXT_DIM)
             surface.blit(m, m.get_rect(center=box.center))
-        cap = caption_for(self._qr is not None, self.net.ip)
+        cap = caption_for(self._qr is not None, self._ts_ip() if self.anywhere else self.net.ip,
+                          self.anywhere)
         c = text_cache.render(text_cache.ellipsize(cap, theme.FS_SMALL, 296), theme.FS_SMALL, theme.TEXT_DIM)
         surface.blit(c, c.get_rect(midtop=(theme.SCREEN_W // 2, qy + QR_SIZE + 4)))
         if self._qr_url:

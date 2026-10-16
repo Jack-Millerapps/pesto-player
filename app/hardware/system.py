@@ -12,6 +12,7 @@ at minimum a black screen and an idle CPU.
 """
 
 import glob
+import ipaddress
 import os
 import shutil
 import socket
@@ -47,11 +48,43 @@ def get_ssid(runner=subprocess.run):
         return None
 
 
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")   # Tailscale's address range
+
+
+def _tailscale_addr(text):
+    """First line of text if it is an IPv4 in 100.64.0.0/10, else None."""
+    for line in (text or "").split():
+        try:
+            a = ipaddress.ip_address(line.strip())
+        except ValueError:
+            continue
+        if a.version == 4 and a in _CGNAT:
+            return str(a)
+    return None
+
+
+def get_tailscale_ip(runner=subprocess.run):
+    """This device's Tailscale IPv4 (100.64.0.0/10), or None if Tailscale is absent/down.
+
+    Tries `tailscale ip -4`, then the tailscale0 interface. Never raises."""
+    for cmd in (["tailscale", "ip", "-4"], ["ip", "-4", "-o", "addr", "show", "tailscale0"]):
+        try:
+            out = runner(cmd, capture_output=True, text=True, timeout=2)
+            text = (out.stdout or "").replace("/", " ") if out.returncode == 0 else ""
+            ip = _tailscale_addr(text)
+            if ip:
+                return ip
+        except Exception:
+            continue
+    return None
+
+
 class NetInfo:
-    """ip/ssid refreshed on a background thread (iwgetid can be slow)."""
+    """ip/ssid/ts_ip refreshed on a background thread (iwgetid can be slow)."""
 
     def __init__(self):
         self.ip = None
+        self.ts_ip = None
         self.ssid = None
         self._busy = False
 
@@ -63,6 +96,7 @@ class NetInfo:
         def work():
             try:
                 self.ip, self.ssid = get_ip(), get_ssid()
+                self.ts_ip = get_tailscale_ip()
             finally:
                 self._busy = False
 

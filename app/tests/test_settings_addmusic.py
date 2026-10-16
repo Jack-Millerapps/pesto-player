@@ -9,6 +9,7 @@ import config
 import main as mainmod
 from player.prefs import Prefs
 from ui import add_music
+from hardware import system
 from ui.add_music import AddMusicScreen, qr_surface, read_uploader_info
 from ui.settings import SettingsScreen, ROWS
 
@@ -212,3 +213,51 @@ def test_url_is_wrapped_not_truncated_and_caption_matches_case():
     assert "Wi-Fi" in add_music.caption_for(False, None).split("(")[0]
     c = add_music.caption_for(False, "10.0.0.5")
     assert "Connect to Wi-Fi" not in c and "Uploader" in c
+
+
+class _R:
+    def __init__(self, out, rc=0):
+        self.stdout, self.returncode = out, rc
+
+
+def test_get_tailscale_ip_parses_and_guards():
+    assert system.get_tailscale_ip(lambda *a, **k: _R("100.101.102.103\n")) == "100.101.102.103"
+    ipout = "5: tailscale0    inet 100.64.1.2/32 scope global tailscale0"
+    assert system.get_tailscale_ip(lambda c, **k: _R(ipout) if c[0] == "ip" else _R("", 1)) == "100.64.1.2"
+    assert system.get_tailscale_ip(lambda *a, **k: _R("192.168.1.9\n")) is None   # not CGNAT
+    assert system.get_tailscale_ip(lambda *a, **k: _R("100.128.0.1\n")) is None   # just outside /10
+
+    def boom(*a, **k):
+        raise FileNotFoundError("tailscale")
+    assert system.get_tailscale_ip(boom) is None
+
+
+class FakeTsNet(FakeNet):
+    ts_ip = "100.101.102.103"
+
+
+def test_toggle_between_home_and_tailscale(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DIRTY_FLAG", str(tmp_path / "library.dirty"))
+    monkeypatch.setattr(config, "UPLOADER_INFO_FILE", str(tmp_path / "uploader.json"))
+    monkeypatch.setattr(add_music.config, "MUSIC_DIRECTORY", str(tmp_path))
+    (tmp_path / "uploader.json").write_text(json.dumps({"token": "TOK", "port": 8080}))
+    s = AddMusicScreen(FakeSM(), None, FakeLib(), FakeTsNet())
+    s.on_enter(); s.update(1.0)
+    assert s.mode_btn.enabled and s._qr_url == "http://10.0.0.5:8080/?t=TOK"
+    s.mode_btn.handle_touch(s.mode_btn.rect.center, "down")
+    s.mode_btn.handle_touch(s.mode_btn.rect.center, "up")
+    s.update(1.0)
+    assert s.anywhere and s._qr_url == "http://100.101.102.103:8080/?t=TOK" and s._qr is not None
+    assert s.mode_btn.text == "Anywhere"
+    assert "any network" in add_music.caption_for(True, "x", True)
+    s.draw(pygame.display.get_surface())
+    s.net.ts_ip = None                          # Tailscale went away: fall back to LAN
+    s.update(1.0)
+    assert not s.anywhere and not s.mode_btn.enabled and s._qr_url == "http://10.0.0.5:8080/?t=TOK"
+    s.draw(pygame.display.get_surface())
+
+
+def test_no_tailscale_hides_toggle(tmp_path, monkeypatch):
+    s, _ = make_add(tmp_path, monkeypatch)       # FakeNet has no ts_ip attribute at all
+    s.on_enter(); s.update(1.0)
+    assert not s.mode_btn.enabled

@@ -22,3 +22,6 @@ Open Library > Add music on the player, scan the QR code with a phone on the sam
 
 ## Power button
 Short press: screen sleep/wake. Hold 3 s: shutdown (needs polkit or `pi/systemd/pesto-power.sudoers.example`). Settings > Exit and Shut down end the app with status 0 and are not restarted; Restart exits with 3.
+
+## Adding music from anywhere (Tailscale)
+Install Tailscale on the Pi, Mac and phone (same account) and Add music shows a "Home Wi-Fi / Anywhere" toggle for the QR; "Anywhere" uses the Pi's tailnet address, so uploads work off your home Wi-Fi. Steps and scp/rsync commands: `pi/tailscale/README.md`. The token still gates every request; traffic stays inside the encrypted tailnet.

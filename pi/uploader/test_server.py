@@ -190,3 +190,17 @@ def test_missing_content_length_rejected(env):
     r = c.post("/upload", headers={**H, "Transfer-Encoding": "chunked"},
                input_stream=io.BytesIO(b""), content_type="multipart/form-data; boundary=x")
     assert r.status_code in (411, 400)
+
+
+def test_token_required_regardless_of_client_network(env):
+    """Tailscale clients (100.64.0.0/10) get no special trust: the token is still required."""
+    client, _, _ = env
+    for path in ("/", "/files", "/status"):
+        assert client.get(path, environ_overrides={"REMOTE_ADDR": "100.101.102.103"}).status_code == 403
+    r = client.get("/files", headers=H, environ_overrides={"REMOTE_ADDR": "100.101.102.103"})
+    assert r.status_code == 200
+
+
+def test_default_bind_is_all_interfaces():
+    """0.0.0.0 covers wlan0 and tailscale0; changing it would break remote upload."""
+    assert os.environ.get("PESTO_UPLOAD_HOST", "0.0.0.0") == "0.0.0.0"
