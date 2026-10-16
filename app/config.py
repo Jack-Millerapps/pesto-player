@@ -34,9 +34,15 @@ BATTERY_CRITICAL = 5         # percent; 3 consecutive readings => shutdown
 MOCK_BATTERY_LEVEL = 85      # TEST_MODE only
 
 # ------------------------------------------------------------- bluetooth
-# Scaffolding only (hardware/bluetooth.py); Settings shows "not available yet".
-BLUETOOTH_SCAN_TIMEOUT = 30
+# A2DP output via bluetoothctl + pactl (hardware/bluetooth.py, ui/bluetooth.py).
+# Pi side setup: pi/bluetooth/setup.sh. Timeouts are seconds.
+BLUETOOTH_SCAN_TIMEOUT = 20         # one Scan tap
+BLUETOOTH_PAIR_TIMEOUT = 25
 BLUETOOTH_CONNECT_TIMEOUT = 15
+BLUETOOTH_SINK_WAIT = 8             # wait for PipeWire to create the BT sink after connect
+BLUETOOTH_POLL_CONNECTED_S = 3.0    # how fast a dropped speaker is noticed
+BLUETOOTH_POLL_IDLE_S = 8.0         # how fast a device reconnecting by itself is noticed
+BLUETOOTH_REPROBE_S = 30.0          # retry when bluetoothd was not up at app start
 AUDIO_OUTPUT_SPEAKER = "speaker"
 AUDIO_OUTPUT_BLUETOOTH = "bluetooth"
 
@@ -60,6 +66,7 @@ INDEX_FILE = os.path.join(STATE_DIR, "library_index.json")   # metadata cache
 PREFS_FILE = os.path.join(STATE_DIR, "prefs.json")           # screen timeout, brightness
 PLAYLIST_DIR = os.path.join(STATE_DIR, "playlists")
 DIRTY_FLAG = os.path.join(STATE_DIR, "library.dirty")        # touched by the uploader per batch
+BLUETOOTH_STATE_FILE = os.path.join(STATE_DIR, "bluetooth.json")  # enabled, last device
 UPLOADER_PORT = 8080
 UPLOADER_INFO_FILE = os.path.join(STATE_DIR, "uploader.json")  # {"token":..,"port":..}
 BACKLIGHT_PATH = "/sys/class/backlight"   # optional; brightness/sleep skip it if absent

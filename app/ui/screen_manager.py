@@ -3,8 +3,9 @@ hosting screens, with tab-aware navigation, toast, action sheet and overlays.
 
 Design:
 - Four fixed tabs; each registered screen belongs to at most one tab. The first
-  screen registered for a tab is that tab's root. push()/pop() are allowed only
-  inside the Library tab and the stack is bounded (no unbounded history).
+  screen registered for a tab is that tab's root (unless registered with
+  child=True). push()/pop() are allowed only inside the Library and Settings tabs
+  (Settings > Bluetooth) and the stack is bounded (no unbounded history).
 - Screens draw into the shared display surface (clipped to the content rect); there
   is no per-Screen full-size surface.
 - draw() redraws only dirty regions and returns the list of dirty rects so the
@@ -18,6 +19,7 @@ from ui.widgets import TabBar
 TABS = [("now_playing", "Now Playing"), ("library", "Library"),
         ("queue", "Queue"), ("settings", "Settings")]
 PUSH_TAB = "library"
+PUSH_TABS = (PUSH_TAB, "settings")
 MAX_STACK = 4
 TOAST_S = 2.5
 ANIM_GAP = 0.25
@@ -53,6 +55,15 @@ class Screen:
 
     def draw(self, surface):
         pass
+
+
+def draw_bt_glyph(surface, center, h, color, width=2):
+    """The Bluetooth rune: a vertical stroke with two arrowheads on the right."""
+    cx, cy = center
+    top, bot, w = (cx, cy - h), (cx, cy + h), h * 0.55
+    pygame.draw.line(surface, color, top, bot, width)
+    pygame.draw.lines(surface, color, False, [(cx - w, cy - h * .5), (cx + w, cy + h * .5), bot], width)
+    pygame.draw.lines(surface, color, False, [(cx - w, cy + h * .5), (cx + w, cy - h * .5), top], width)
 
 
 class StatusBar:
@@ -92,7 +103,9 @@ class StatusBar:
             surface.blit(img, (bx + 34, (theme.STATUS_H - img.get_height()) // 2))
         if self.bluetooth_connected:
             img = text_cache.render("BT", theme.FS_SMALL, theme.PRIMARY_LIGHT, bold=True)
-            surface.blit(img, (r.right - theme.PAD - img.get_width(), (theme.STATUS_H - img.get_height()) // 2))
+            x = r.right - theme.PAD - img.get_width()
+            surface.blit(img, (x, (theme.STATUS_H - img.get_height()) // 2))
+            draw_bt_glyph(surface, (x - 9, theme.STATUS_H // 2), 7, theme.PRIMARY_LIGHT)
         self.dirty = False
 
 
@@ -123,9 +136,11 @@ class ScreenManager:
         self._overlay_was_active = False
 
     # ---------------- registration / navigation ----------------
-    def register(self, name, screen, tab=None):
+    def register(self, name, screen, tab=None, child=False):
+        """child=True: belongs to `tab` (highlights it, can be pushed) but never
+        becomes its root, whatever the registration order."""
         self._screens[name] = (screen, tab)
-        if tab is not None and tab not in self._tab_root:
+        if tab is not None and not child and tab not in self._tab_root:
             self._tab_root[tab] = name
         if screen.screen_manager is None:
             screen.screen_manager = self
@@ -162,7 +177,8 @@ class ScreenManager:
         """Navigate deeper inside the Library tab (bounded stack)."""
         if name not in self._screens or self._cur is None:
             return
-        if self._tab_of(self._cur) != PUSH_TAB or self._tab_of(name) != PUSH_TAB:
+        tab = self._tab_of(self._cur)
+        if tab not in PUSH_TABS or self._tab_of(name) != tab:
             return
         if name == self._cur:
             return

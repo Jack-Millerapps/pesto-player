@@ -10,7 +10,7 @@ main.py (PestoPlayer: loop, power, sleep, wiring)
  |- player/        library.py (threaded scan, cached index), audio.py (queue/shuffle/repeat on a
  |                 VLC or simulated backend), playlist.py, prefs.py
  |- hardware/      battery.py (MAX17048 / sysfs / unknown), buttons.py (GPIO), system.py (network,
- |                 disk, backlight sleep, shutdown), bluetooth.py (scaffolding only)
+ |                 disk, backlight sleep, shutdown), bluetooth.py (A2DP output, see below)
 pi/uploader/server.py   separate process (pesto-uploader.service): Flask upload page on :8080
 ```
 
@@ -34,3 +34,9 @@ Screens draw into the shared surface clipped to the content rect; the ScreenMana
 
 ## Not verified without hardware
 Touch, framebuffer push speed, real VLC audio, backlight sleep, GPIO buttons, shutdown permissions, uploader memory use and phone uploads.
+
+## Bluetooth audio output
+- `hardware/bluetooth.py`: `BluetoothManager` serialises one-shot `bluetoothctl` commands (pair with a `NoInputNoOutput` agent, trust, connect, remove) on a single worker thread. The UI only reads `snapshot()`/`device_list()`/`version` and drains `poll_events()`. Polling `info MAC` (3 s while connected, 8 s idle) notices drops and devices that reconnect by themselves. `MockBluetooth`/`MockRouter` are used in TEST_MODE. State (enabled, last device) lives in `~/.pesto/bluetooth.json`. The worker re-probes every 30 s if bluetoothd was not up at app start.
+- Routing: `AudioRouter` uses `pactl` against pipewire-pulse to set the default sink to `bluez_output.<MAC>` and move live streams. If that fails, the current track is reopened at its current position (`AudioPlayer.reopen_output`). When a speaker drops, `AudioPlayer.pause_for_output_change()` pauses, and the next play reopens the stream at the same spot.
+- `ui/bluetooth.py`: `BluetoothScreen` is registered as a `child=True` screen of the Settings tab, which now allows push/pop. `BluetoothEvents` runs from `AudioPlayer.tick_hooks` (main thread, also while the screen is asleep) and handles toasts, the status-bar BT indicator and pause-on-drop. `SettingsScreen` calls `install()`, so main.py is unchanged.
+- The service has no login session. `pi/bluetooth/setup.sh` enables linger for `pesto` so the user's PipeWire runs at boot, turns off WirePlumber's seat-session requirement for Bluetooth, and adds a drop-in with the `bluetooth` group and `XDG_RUNTIME_DIR`. Details and unverified points: `pi/bluetooth/README.md`.

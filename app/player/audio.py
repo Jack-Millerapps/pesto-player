@@ -18,6 +18,10 @@ Semantics worth knowing (UI authors):
   poll_interval (0.2 s = 5 Hz); it is cheap to call every frame.
 - Volume, queue, shuffle/repeat and the current track are saved to
   config.STATE_FILE (debounced, atomic) and restored by restore_state(library).
+- Output changes (Bluetooth, see hardware/bluetooth.py): pause_for_output_change()
+  pauses and makes the next play() reopen the track at the same position (a stream
+  whose sink vanished may be dead); reopen_output() does that immediately while
+  playing, so a fresh stream lands on the new default sink.
 """
 
 import json
@@ -40,6 +44,12 @@ class VlcBackend:
     def __init__(self):
         if vlc is None:
             raise RuntimeError("python-vlc / libvlc not available")
+        try:  # system service: libpulse needs XDG_RUNTIME_DIR to find PipeWire
+            from hardware.bluetooth import ensure_user_audio_env
+            ensure_user_audio_env()
+        except Exception as e:
+            print(f"Audio: could not set up the user audio session env: {e}")
+        self._media = None
         self._instance = vlc.Instance("--no-xlib", "--quiet")
         if self._instance is None:
             raise RuntimeError("libvlc instance could not be created")
@@ -49,8 +59,14 @@ class VlcBackend:
         path = os.path.expanduser(path)
         if not os.path.isfile(path):
             return False
-        self._player.set_media(self._instance.media_new(path))
+        self._media = self._instance.media_new(path)
+        self._player.set_media(self._media)
         return True
+
+    def set_start(self, seconds):
+        """Start the loaded media at `seconds` (must be called before play())."""
+        if self._media is not None and seconds > 0:
+            self._media.add_option(":start-time=%.2f" % seconds)
 
     def play(self):
         self._player.play()
@@ -118,6 +134,9 @@ class SimulatedBackend:
         self._state = "stopped"
         return True
 
+    def set_start(self, seconds):
+        self._base = max(0.0, min(self._length, float(seconds)))
+
     def play(self):
         self._started = self._clock()
         self._state = "playing"
@@ -176,6 +195,7 @@ class AudioPlayer:
         self._playing = False
         self._loaded = False
         self._ended = False   # queue ran out; next play() should pick up newly added tracks
+        self._reopen = False  # audio output changed while paused: reload on next play()
         self._shuffle = False
         self._repeat = "off"
         self._volume = config.VOLUME_DEFAULT
@@ -189,6 +209,9 @@ class AudioPlayer:
         self.on_error = None
         self.on_track_change = None
         self.on_playback_state_change = None
+        # Callables run from update() (main thread, ~5 Hz, also while the screen is
+        # asleep). ui/bluetooth.py uses one to pause when a BT speaker drops.
+        self.tick_hooks = []
 
     # ---------------------------------------------------------- properties
     @property
@@ -352,8 +375,9 @@ class AudioPlayer:
         self._dirty = True
 
     # ------------------------------------------------------------ playback
-    def _start_current(self, direction=1, failures=0):
-        """Load and play the track at self._pos; on failure skip in `direction`."""
+    def _start_current(self, direction=1, failures=0, start_s=0.0):
+        """Load and play the track at self._pos (from start_s seconds); on failure
+        skip in `direction`."""
         track = self._current()
         if track is None:
             self._stop_backend()
@@ -366,6 +390,15 @@ class AudioPlayer:
         if not ok:
             self._report(f"Can't play: {track.get('title') or track.get('path')}")
             return self._skip_failed(direction, failures + 1)
+        if start_s > 0 and hasattr(self._backend, "set_start"):
+            try:
+                self._backend.set_start(start_s)
+            except Exception as e:
+                print(f"Audio: set_start error: {e}")
+                start_s = 0.0
+        else:
+            start_s = 0.0
+        self._reopen = False
         try:
             self._backend.play()
         except Exception as e:
@@ -375,10 +408,10 @@ class AudioPlayer:
         self._loaded = True
         self._ended = False
         self._set_playing(True)
-        self._cache = {"position": 0.0, "duration": track.get("duration") or 0.0}
+        self._cache = {"position": float(start_s), "duration": track.get("duration") or 0.0}
         self._last_poll = 0.0
         self._dirty = True
-        if self.on_track_change:
+        if self.on_track_change and not start_s:
             self.on_track_change(track)
         return True
 
@@ -426,6 +459,9 @@ class AudioPlayer:
             self._pos = 0 if self._order else -1
         if self._pos < 0:
             return
+        if self._reopen and self._loaded:
+            self._start_current(start_s=self._cache.get("position", 0.0))
+            return
         if self._loaded and self._backend.state() not in ("ended", "error", "stopped"):
             if hasattr(self._backend, "resume"):
                 self._backend.resume()
@@ -441,6 +477,24 @@ class AudioPlayer:
             self._poll(force=True)
             self._set_playing(False)
             self._dirty = True
+
+    def pause_for_output_change(self):
+        """The audio device went away (e.g. Bluetooth speaker dropped): pause, and
+        reopen the stream at the same spot on the next play()."""
+        was = self._playing
+        if was:
+            self.pause()
+        if self._loaded:
+            self._reopen = True
+        return was
+
+    def reopen_output(self):
+        """Restart the current track at the current position so the new stream
+        opens on the (new) default output. No-op unless playing."""
+        if not (self._playing and self._loaded):
+            return False
+        self._poll(force=True)
+        return self._start_current(start_s=self._cache.get("position", 0.0))
 
     def toggle(self):
         if self._playing:
@@ -532,6 +586,11 @@ class AudioPlayer:
         """Call every frame; real work happens at most every poll_interval."""
         if not self._poll():
             return
+        for fn in list(self.tick_hooks):
+            try:
+                fn()
+            except Exception as e:
+                print(f"Audio: tick hook failed: {type(e).__name__}: {e}")
         if self._loaded and self._playing:
             st = self._backend.state()
             if st == "ended":

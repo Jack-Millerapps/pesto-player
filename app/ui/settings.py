@@ -1,4 +1,4 @@
-"""Settings screen: a scrolling list of real controls (volume, output, shuffle,
+"""Settings screen: a scrolling list of real controls (volume, Bluetooth, shuffle,
 repeat, screen timeout, brightness, sleep timer, rescan, storage, network,
 battery, version, shutdown/restart/exit with confirm).
 
@@ -6,6 +6,10 @@ Rows are 56 px tall (touch friendly). The volume row is a tap-to-set bar (a scro
 drag must never change volume, so there is no drag slider in a scrolling list).
 Anything that needs the whole app (shutdown, restart, exit, brightness) goes
 through `hooks`, a dict of callables supplied by main.py.
+
+Bluetooth: unless a manager is passed in, the constructor calls ui.bluetooth.install,
+which registers the "bluetooth" screen (pushed from the Bluetooth row) and starts
+the manager, whose startup auto-reconnects the last speaker/headphones.
 """
 import pygame
 
@@ -17,7 +21,7 @@ from ui.screen_manager import Screen
 from ui.widgets import ScrollList
 
 ROWS = [
-    ("volume", "Volume"), ("output", "Audio output"), ("shuffle", "Shuffle"),
+    ("volume", "Volume"), ("output", "Bluetooth"), ("shuffle", "Shuffle"),
     ("repeat", "Repeat"), ("timeout", "Screen timeout"), ("brightness", "Brightness"),
     ("sleep", "Sleep timer"), ("rescan", "Rescan library"), ("add_music", "Add music"),
     ("storage", "Storage"), ("network", "Wi-Fi"), ("battery", "Battery"),
@@ -32,8 +36,16 @@ TIMEOUT_LABEL = {0: "Never", 30: "30 s", 60: "1 min", 120: "2 min", 300: "5 min"
 
 class SettingsScreen(Screen):
     def __init__(self, screen_manager, audio_player, music_library, prefs=None, hooks=None,
-                 battery=None, display=None, netinfo=None):
+                 battery=None, display=None, netinfo=None, bluetooth=None):
         super().__init__(screen_manager)
+        self.bt = bluetooth
+        if self.bt is None and hasattr(screen_manager, "register"):
+            try:
+                from ui.bluetooth import install
+                self.bt = install(screen_manager, audio_player)
+            except Exception as e:      # never lose Settings over Bluetooth
+                print(f"Settings: Bluetooth unavailable: {type(e).__name__}: {e}")
+                self.bt = None
         self.audio_player = audio_player
         self.library = music_library
         self.prefs = prefs or Prefs()
@@ -64,7 +76,7 @@ class SettingsScreen(Screen):
         if key == "volume":
             return "%d%%" % st.get("volume", 0)
         if key == "output":
-            return "Speaker"
+            return self._bt_text()[0]
         if key == "shuffle":
             return "On" if st.get("shuffle") else "Off"
         if key == "repeat":
@@ -97,7 +109,21 @@ class SettingsScreen(Screen):
             return config.APP_VERSION
         return ""
 
+    def _bt_text(self):
+        if self.bt is None:
+            return "Unavailable", ""
+        s = self.bt.snapshot()
+        if s["available"] is False:
+            return "Unavailable", ""
+        if s["connected_name"]:
+            return s["connected_name"], "Connected"
+        if s["available"] and not s["powered"]:
+            return "Off", ""
+        return "Speaker", ""
+
     def sub_text(self, key):
+        if key == "output":
+            return self._bt_text()[1]
         if key == "network":
             return self.net.ip or ""
         return ""
@@ -177,7 +203,10 @@ class SettingsScreen(Screen):
             vol = round(100.0 * (x - VOL_BAR_X0) / (VOL_BAR_X1 - VOL_BAR_X0))
             a.set_volume(max(0, min(100, vol)))
         elif key == "output":
-            sm.toast("Bluetooth output isn't available yet")
+            if self.bt is None:
+                sm.toast("Bluetooth isn't available", "warn")
+            else:
+                sm.push("bluetooth")
         elif key == "shuffle":
             a.shuffle = not a.shuffle
         elif key == "repeat":
